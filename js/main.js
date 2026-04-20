@@ -702,10 +702,31 @@ function renderPack(pack) {
 
 function moveToSide(cardEl, index) {
     const isLeft = index < 5;
-    const xPos = isLeft ? -350 - (index * 20) : 350 + ((index - 5) * 20);
-    const yPos = (index % 5) * 30 - 60; 
-    const rotation = isLeft ? -10 : 10;
-    cardEl.style.transform = `translate(${xPos}px, ${yPos}px) scale(0.7) rotate(${rotation}deg)`;
+    const containerW = packContainer.offsetWidth;
+    const cardW = cardEl.offsetWidth || 120;
+
+    // En móvil (contenedor < 600px) usamos posicionamiento proporcional
+    const isMobile = containerW < 600;
+
+    let xPos, yPos, rotation, scale;
+
+    if (isMobile) {
+        // Desplazamiento lateral: ~30% del ancho del contenedor + pequeño escalonado
+        const sideOffset = containerW * 0.30 + (index % 5) * 4;
+        xPos = isLeft ? -sideOffset : sideOffset;
+        // Escalonado vertical compacto para que no se salgan por arriba/abajo
+        yPos = (index % 5) * (cardW * 0.45) - (cardW * 0.9);
+        rotation = isLeft ? -8 : 8;
+        scale = 0.48;
+    } else {
+        // PC: comportamiento original
+        xPos = isLeft ? -350 - (index * 20) : 350 + ((index - 5) * 20);
+        yPos = (index % 5) * 30 - 60;
+        rotation = isLeft ? -10 : 10;
+        scale = 0.7;
+    }
+
+    cardEl.style.transform = `translate(${xPos}px, ${yPos}px) scale(${scale}) rotate(${rotation}deg)`;
 }
 
 async function updatePriceLive(cardId, modalPriceTag, sellBtn, backupPrice) {
