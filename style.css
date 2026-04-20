@@ -1,0 +1,1063 @@
+/* =========================================
+   1. VARIABLES Y BASE
+   ========================================= */
+:root {
+    --bg-color: #1a1a1a;
+    --card-width: 220px;
+    --card-height: 307px;
+    --gold: #ffcb05;
+    --blue: #2a75bb;
+    --success: #4caf50;
+    --accent: #e91e63;
+}
+
+body {
+    margin: 0;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* =========================================
+   2. HEADER & ECONOMÍA
+   ========================================= */
+header {
+    background: #252525;
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+    z-index: 100;
+}
+
+.economy-info {
+    display: flex;
+    gap: 20px;
+}
+
+#wallet-display, #pack-profit-display {
+    font-weight: bold;
+    font-size: 1rem;
+    background: #111;
+    padding: 8px 15px;
+    border-radius: 20px;
+    border: 1px solid #333;
+}
+
+#wallet-display span { color: var(--success); }
+#pack-profit-display span { color: #ffeb3b; }
+
+.controls {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+select, button {
+    padding: 10px 15px;
+    border-radius: 8px;
+    border: none;
+    font-size: 0.9rem;
+    cursor: pointer;
+    outline: none;
+}
+
+button {
+    background-color: var(--gold);
+    color: var(--blue);
+    font-weight: bold;
+    text-transform: uppercase;
+    transition: all 0.2s ease;
+}
+
+button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+    box-shadow: 0 4px 10px rgba(255, 203, 5, 0.3);
+}
+
+button:disabled {
+    background-color: #444;
+    color: #888;
+    cursor: not-allowed;
+}
+
+/* =========================================
+   3. ESCENARIO (TAPETE)
+   ========================================= */
+#pack-container {
+    overflow: visible !important;
+    position: relative;
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    perspective: 1500px;
+    padding: 50px;
+    background-image: url('assets/img/playmat.png');
+    background-size: cover;
+    background-position: center;
+    box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+}
+
+/* =========================================
+   4. CARTAS (LÓGICA 3D Y ANIMACIONES)
+   ========================================= */
+.card {
+    position: absolute;
+    width: var(--card-width);
+    height: var(--card-height);
+    transition: all 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.card-inner {
+    pointer-events: none; /* Esto ayuda a que el onmouseenter sea sólido */
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    transform-style: preserve-3d;
+}
+
+.card.flipped .card-inner {
+    transform: rotateY(180deg);
+}
+.card.trophy-card {
+    transition: transform 0.3s ease, filter 0.3s ease !important;
+}
+
+.card.trophy-card:hover {
+    /* En lugar de cambiar el z-index a 500 (que puede chocar con el 1000+), 
+       simplemente la subimos un poco y le quitamos el filtro */
+    transform: scale(0.7) translateY(20px) rotate(0deg) !important;
+    filter: brightness(1.2);
+    z-index: 2000 !important; /* Un nivel por encima de todas las demás trophy */
+}
+
+.card-front, .card-back {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    border-radius: 12px;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+}
+
+.card-back {
+    background-color: #222;
+    background-image: url('assets/img/card-back.png');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.card-front {
+    background-size: cover;
+    background-position: center;
+    transform: rotateY(180deg);
+}
+
+
+@keyframes deal {
+    from { transform: translateY(100vh) rotate(15deg); opacity: 0; }
+    to { transform: translateY(0) rotate(0deg); opacity: 1; }
+}
+
+.dealing {
+    animation: deal 0.6s backwards;
+}
+
+.price-tag {
+    position: absolute;
+    bottom: -35px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #00ff00;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+    border: 1px solid #00ff00;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    white-space: nowrap;
+    z-index: 100;
+}
+
+.card.flipped .price-tag {
+    opacity: 1;
+}
+
+/* =========================================
+   4.5 ---------------PSA-----------------
+   ========================================= */
+.psa-card-header {
+    background: #d10000;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 8px;
+    font-weight: bold;
+    font-size: 12px;
+    border-radius: 4px 4px 0 0;
+}
+.psa-grade-value {
+    background: white;
+    color: #d10000;
+    padding: 0 4px;
+    border-radius: 2px;
+}
+.psa-slab {
+    border: 2px solid #444 !important;
+    background: #1a1a1a !important;
+}
+.grade-10 {
+    box-shadow: 0 0 15px gold;
+    border: 2px solid gold !important;
+}
+
+/* La partícula dorada */
+.psa-particle {
+    position: absolute;
+    background: radial-gradient(circle, rgba(255, 235, 120, 1) 0%, rgba(212, 175, 55, 0.4) 100%);
+    border-radius: 50%;
+    filter: blur(1px); /* Para que parezca polvo de estrellas */
+    box-shadow: 0 0 5px rgba(212, 175, 55, 0.8);
+}
+
+/* Animación de flotar */
+@keyframes psa-particle-float {
+    0% {
+        transform: translateY(0) translateX(0);
+        opacity: 0;
+    }
+    10% {
+        opacity: 1;
+    }
+    90% {
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(-200px) translateX(30px);
+        opacity: 0;
+    }
+}
+
+/* Asegurar que el modal content esté por encima de las partículas (z-index 2) */
+.modal-content {
+    z-index: 2;
+    background: transparent !important; /* Para que se vean las partículas por detrás */
+}
+
+/* Asegurar que la carta 3D y su sombra tengan z-index 2 */
+#zoomed-card {
+    z-index: 2;
+    transform-style: preserve-3d;
+}
+
+/* =========================================
+   5. MODAL ZOOM & EFECTOS ESPECIALES
+   ========================================= */
+#modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.95);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+    cursor: zoom-out;
+    backdrop-filter: blur(5px);
+}
+
+.modal-content {
+    width: 380px;
+    height: 530px;
+    perspective: 1200px;
+    position: relative;
+    /* Importante: Sin overflow hidden para ver botones exteriores */
+}
+
+#zoomed-card {
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    border-radius: 18px;
+    box-shadow: 0 0 60px rgba(0,0,0,0.5);
+    transition: transform 0.1s ease-out;
+    position: relative;
+    overflow: hidden; /* Solo la carta tiene overflow para el brillo */
+}
+
+/* Brillo Holográfico */
+#zoomed-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.3) 35%, rgba(255,0,255,0.1) 45%, rgba(0,255,255,0.1) 55%, rgba(255,255,255,0.3) 65%, transparent 75%);
+    background-size: 250% 250%;
+    background-position: var(--glitter-x, 50%) var(--glitter-y, 50%);
+    mix-blend-mode: color-dodge;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+
+#zoomed-card.is-holo::after { opacity: 1; }
+
+#modal-price-tag {
+    position: absolute;
+    bottom: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: #00ff00;
+    padding: 10px 25px;
+    border-radius: 30px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 1.2rem;
+    border: 2px solid #00ff00;
+    box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+    white-space: nowrap;
+}
+
+#sell-button {
+    position: absolute;
+    bottom: -120px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: white;
+    padding: 12px 30px;
+    border-radius: 8px;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(233, 30, 99, 0.4);
+    transition: all 0.2s;
+    display: none; /* Controlado por JS */
+}
+
+#sell-button:hover {
+    background: #ff4081;
+    transform: translateX(-50%) translateY(-2px);
+}
+
+/* =========================================
+   6. ÁLBUM DE COLECCIÓN
+   ========================================= */
+#global-search-btn:hover {
+    filter: brightness(1.2);
+    box-shadow: 0 0 10px var(--accent);
+    transform: translateY(-1px);
+}
+
+.search-container {
+    margin: 0 15px;
+}
+
+#album-screen {
+    display: none;
+    padding: 20px;
+    background: radial-gradient(circle, #2a2a2a 0%, #111 100%);
+    min-height: 100vh;
+}
+
+.album-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding: 15px 25px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 12px;
+    border: 1px solid #333;
+}
+
+#album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 25px;
+    padding-bottom: 50px;
+}
+
+.album-card-slot {
+    transition: transform 0.2s;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    height: auto;
+}
+.album-card-slot p {
+    line-height: 1.2;
+    padding: 0 4px;
+    word-wrap: break-word;
+}
+
+.album-card-slot.owned:hover {
+    transform: scale(1.05);
+}
+
+.album-card-img {
+    width: 100%;
+    aspect-ratio: 2/3;
+    background-size: cover;
+    background-position: center;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    position: relative;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* Silueta Pokédex */
+.missing .album-card-img {
+    filter: brightness(0.1) grayscale(1) contrast(1.2);
+    opacity: 0.4;
+    border: 1px dashed #444;
+}
+
+.card-count {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: var(--gold);
+    color: var(--blue);
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: bold;
+    font-size: 0.85rem;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    z-index: 2;
+}
+
+.album-card-info {
+    text-align: center;
+    margin-top: 10px;
+}
+
+.album-card-info p {
+    font-size: 0.85rem;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #ddd;
+}
+
+.card-rarity {
+    display: block;
+    font-size: 0.65rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 3px;
+}
+
+#refresh-price-btn {
+    position: absolute;
+    top: 10px;
+    right: -50px;
+    background: rgba(0, 0, 0, 0.8);
+    color: var(--gold);
+    border: 1px solid var(--gold);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 1.5rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.3s;
+}
+
+.spinning {
+    animation: rotation 1s infinite linear;
+    pointer-events: none; /* Evita que le den 20 veces mientras carga */
+    opacity: 0.5;
+}
+
+#refresh-price-btn:hover {
+    transform: rotate(180deg);
+    background: var(--gold);
+    color: black;
+}
+
+/* =========================================
+   7. UTILIDADES (LOADER, FOOTER, ETC.)
+   ========================================= */
+.loader {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #FFF;
+    border-bottom-color: transparent;
+    border-radius: 50%;
+    display: inline-block;
+    animation: rotation 1s linear infinite;
+}
+
+@keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+footer {
+    padding: 15px;
+    background: #111;
+    border-top: 1px solid #333;
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    font-size: 0.9rem;
+    color: #888;
+}
+
+footer span { color: var(--gold); font-weight: bold; }
+
+.loading-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 100px;
+    color: var(--gold);
+    font-style: italic;
+}
+
+/* Contenedor del enlace de CardMarket */
+#market-link-btn {
+    display: block;
+    margin-top: 15px;
+    color: #ffcb05; /* Amarillo Pokémon */
+    text-decoration: underline;
+    font-weight: bold;
+    font-size: 0.9rem;
+    text-align: center;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+#market-link-btn:hover {
+    color: #2a75bb; /* Azul Pokémon */
+}
+
+/* El botón del lápiz para que se vea bien */
+#edit-price-btn {
+    background: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    margin-left: 10px;
+    cursor: pointer;
+    font-size: 1.2rem;
+    vertical-align: middle;
+}
+
+/* Contenedor de botones arriba de la carta */
+#modal-tools {
+    position: absolute;
+    top: -50px;
+    right: 0;
+    display: flex;
+    gap: 10px;
+    z-index: 2001;
+}
+
+#refresh-price-btn, #edit-price-btn {
+    background: rgba(0, 0, 0, 0.8);
+    color: var(--gold);
+    border: 1px solid var(--gold);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1.2rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#edit-price-btn {
+    color: #4caf50;
+    border-color: #4caf50;
+}
+
+/* Enlace de CardMarket */
+#market-link-btn {
+    position: absolute;
+    bottom: -160px; /* Ajusta según necesites */
+    left: 50%;
+    transform: translateX(-50%);
+    color: #ffcb05;
+    text-decoration: none;
+    font-weight: bold;
+    font-size: 1rem;
+    white-space: nowrap;
+    background: rgba(0,0,0,0.5);
+    padding: 5px 15px;
+    border-radius: 20px;
+}
+
+#market-link-btn:hover {
+    color: white;
+    background: #2a75bb;
+}
+
+/* Hit Normal ($5+) - Brillo azul suave */
+.hit-normal {
+    box-shadow: 0 0 15px #00d4ff;
+    transition: box-shadow 0.3s ease;
+}
+
+/* Rare Hit ($50+) - Brillo plateado/blanco intenso */
+.hit-rare {
+    box-shadow: 0 0 20px 5px #ffffff;
+    border: 2px solid #e0e0e0;
+}
+
+@keyframes legendary-glow {
+    from { box-shadow: 0 0 20px #ffcc00; transform: scale(1.02); }
+    to { box-shadow: 0 0 40px #ffae00; transform: scale(1.05); }
+}
+
+@keyframes shake {
+    0% { transform: rotate(0deg); }
+    25% { transform: rotate(3deg); }
+    50% { transform: rotate(-3deg); }
+    75% { transform: rotate(3deg); }
+    100% { transform: rotate(0deg); }
+}
+
+.hit-legendary:not(.aside) {
+    z-index: 1000 !important;
+    transform: scale(1.1) rotate(0deg) !important;
+    filter: brightness(1.1) drop-shadow(0 0 30px gold);
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* Estilo para cuando ya se han movido al lateral con las demás */
+.hit-legendary.aside {
+    /* IMPORTANTE: Eliminamos top, right y transform fijo para que JS mande */
+    z-index: 10 !important; 
+    filter: brightness(1.1) drop-shadow(0 0 15px gold) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* Mantenemos el hover por si quieres verlas brillar más al pasar el ratón */
+.hit-legendary.aside:hover {
+    filter: brightness(1.3) drop-shadow(0 0 20px gold) !important;
+    z-index: 500 !important;
+}
+
+/* Regla general de visibilidad para cartas apartadas */
+.card.aside {
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+/* =========================================
+   8. RESPONSIVE MÓVIL
+   ========================================= */
+
+/* --- Tablet (≤768px) --- */
+@media (max-width: 768px) {
+
+    /* Header: apilamos en columna */
+    header {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 0.75rem 1rem;
+        gap: 10px;
+    }
+
+    .header-main {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .header-main h1 {
+        font-size: 1.3rem;
+        margin: 0;
+        text-align: center;
+    }
+
+    /* Controles: dos filas */
+    .controls {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .controls select {
+        width: 100%;
+        font-size: 0.8rem;
+        padding: 8px 10px;
+    }
+
+    /* Botón abrir ocupa toda la fila */
+    #open-button {
+        grid-column: 1 / -1;
+        font-size: 0.9rem;
+        padding: 12px;
+    }
+
+    #view-album-btn {
+        grid-column: 1 / -1;
+        font-size: 0.85rem;
+        padding: 10px;
+    }
+
+    /* Economía: fila compacta */
+    .economy-info {
+        flex-direction: row;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    #wallet-display, #pack-profit-display {
+        font-size: 0.8rem;
+        padding: 6px 10px;
+    }
+
+    /* Tapete: menos padding, cartas más pequeñas */
+    #pack-container {
+        padding: 20px 10px;
+        min-height: 60vh;
+    }
+
+    :root {
+        --card-width: 120px;
+        --card-height: 168px;
+    }
+
+    /* Modal zoom: adaptado al ancho de pantalla */
+    .modal-content {
+        width: 85vw;
+        height: calc(85vw * 1.4);
+        max-width: 320px;
+        max-height: 448px;
+    }
+
+    /* Precio modal: no se corta */
+    #modal-price-tag {
+        font-size: 0.95rem;
+        padding: 7px 16px;
+        bottom: -48px;
+        white-space: nowrap;
+    }
+
+    #sell-button {
+        bottom: -100px;
+        padding: 10px 22px;
+        font-size: 0.85rem;
+    }
+
+    /* Herramientas del modal (lápiz, refresh) encima */
+    #modal-tools {
+        top: -44px;
+        right: 0;
+    }
+
+    /* Álbum: nav colapsa */
+    .album-nav {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px 15px;
+    }
+
+    .album-filters {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        width: 100%;
+    }
+
+    .album-tabs {
+        flex-direction: row !important;
+    }
+
+    .search-container {
+        margin: 0;
+        width: 100%;
+    }
+
+    #album-search {
+        flex: 1;
+        width: 100% !important;
+        min-width: 0;
+    }
+
+    /* Grid del álbum: 3 columnas en tablet */
+    #album-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+
+    /* Footer */
+    footer {
+        font-size: 0.8rem;
+        gap: 15px;
+        padding: 10px;
+    }
+}
+
+/* --- Móvil pequeño (≤480px) --- */
+@media (max-width: 480px) {
+
+    .header-main h1 {
+        font-size: 1.1rem;
+    }
+
+    /* Cartas aún más pequeñas */
+    :root {
+        --card-width: 95px;
+        --card-height: 133px;
+    }
+
+    /* Modal ocupa casi todo el ancho */
+    .modal-content {
+        width: 90vw;
+        height: calc(90vw * 1.4);
+        max-width: 280px;
+        max-height: 392px;
+    }
+
+    /* Álbum: 2 columnas */
+    #album-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+
+    .album-card-info p {
+        font-size: 0.75rem;
+    }
+
+    /* Efectos 3D del modal en touch: lo desactivamos para evitar glitches */
+    #zoomed-card {
+        transform: none !important;
+    }
+
+    /* Botones más grandes para dedos */
+    button {
+        min-height: 44px;
+    }
+
+    select {
+        min-height: 40px;
+    }
+
+    #back-to-game {
+        font-size: 0.85rem;
+        padding: 10px 14px;
+    }
+
+    #view-valuable-btn {
+        width: 100%;
+        padding: 10px;
+    }
+
+    /* Precio de carta no se desborda */
+    .price-tag {
+        font-size: 0.75rem;
+        padding: 3px 8px;
+        bottom: -28px;
+    }
+
+    /* Enlace CardMarket: sube un poco en pantallas pequeñas */
+    #market-link-btn {
+        bottom: -130px;
+        font-size: 0.85rem;
+    }
+
+    /* Info de colección en línea */
+    #collection-stats {
+        text-align: center;
+        font-size: 0.8rem;
+    }
+}
+
+/* --- Touch: evitar hover que se queda pegado --- */
+@media (hover: none) {
+    button:hover:not(:disabled) {
+        transform: none;
+        filter: none;
+        box-shadow: none;
+    }
+
+    .album-card-slot.owned:hover {
+        transform: none;
+    }
+
+    /* El efecto 3D del modal lo manejamos con touchmove en JS en lugar de mousemove */
+    #zoomed-card {
+        transition: transform 0.15s ease-out;
+    }
+}
+
+/* =========================================
+   8. RESPONSIVE MÓVIL
+   ========================================= */
+@media (max-width: 768px) {
+
+    /* --- VARIABLES: cartas más pequeñas --- */
+    :root {
+        --card-width: 110px;
+        --card-height: 154px;
+    }
+
+    /* --- HEADER: apilar en columna --- */
+    header {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 10px;
+        gap: 10px;
+    }
+
+    .header-main {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+    }
+
+    .header-main h1 {
+        font-size: 1.2rem;
+        margin: 0;
+        text-align: center;
+    }
+
+    .controls {
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+    }
+
+    .controls select,
+    .controls button {
+        flex: 1 1 calc(50% - 8px);
+        min-width: 120px;
+        font-size: 0.8rem;
+        padding: 8px 10px;
+    }
+
+    /* --- ECONOMÍA: en fila compacta --- */
+    .economy-info {
+        flex-direction: row;
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    #wallet-display,
+    #pack-profit-display {
+        font-size: 0.8rem;
+        padding: 6px 10px;
+    }
+
+    /* --- TAPETE: padding reducido --- */
+    #pack-container {
+        padding: 20px 10px;
+        min-height: 55vh;
+    }
+
+    /* --- MODAL ZOOM: cabe en pantalla --- */
+    .modal-content {
+        width: 85vw;
+        height: calc(85vw * 1.4);
+        max-width: 320px;
+        max-height: 448px;
+    }
+
+    #modal-price-tag {
+        bottom: -50px;
+        font-size: 1rem;
+        padding: 8px 18px;
+    }
+
+    #sell-button {
+        bottom: -100px;
+        padding: 10px 22px;
+        font-size: 0.85rem;
+    }
+
+    #market-link-btn {
+        bottom: -130px;
+        font-size: 0.85rem;
+    }
+
+    #modal-tools {
+        top: -45px;
+    }
+
+    /* --- ÁLBUM: nav en columna --- */
+    .album-nav {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 10px;
+        margin-bottom: 15px;
+    }
+
+    .album-filters {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .album-tabs {
+        gap: 6px !important;
+    }
+
+    .album-tabs button {
+        font-size: 0.8rem;
+        padding: 8px 5px !important;
+    }
+
+    #view-valuable-btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .search-container {
+        margin: 0;
+        width: 100%;
+    }
+
+    #album-search {
+        flex: 1;
+        width: auto !important;
+        min-width: 0;
+    }
+
+    /* --- GRID DEL ÁLBUM: columnas más pequeñas --- */
+    #album-grid {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 12px;
+    }
+
+    .album-card-info p {
+        font-size: 0.75rem;
+    }
+
+    /* --- FOOTER --- */
+    footer {
+        font-size: 0.8rem;
+        gap: 15px;
+        padding: 10px;
+    }
+}

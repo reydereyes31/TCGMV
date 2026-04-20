@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PokeSim - Simulador de Sobres</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header>
+        <div class="header-main">
+            <h1>PokeSim Builder</h1>
+            <div class="controls">
+                <select id="order-selector" style="background-color: #333; color: white; border: 1px solid #555;">
+                    <option value="alphabetical">Nombre (A-Z)</option> <option value="price-asc">Precio: Menor a Mayor</option>
+                    <option value="date-new">Novedades (Año)</option>
+                    <option value="date-old">Antiguos (Año)</option>
+                    <option value="price-asc">Precio: Menor a Mayor</option>
+                    <option value="price-desc">Precio: Mayor a Menor</option>
+                </select>
+
+                <select id="set-selector">
+                    <option value="">Cargando colecciones...</option>
+                </select>
+                
+                <button id="open-button">Cargando cartas...</button>
+                <button id="view-album-btn" style="background-color: var(--blue); color: white;">Ver Álbum</button>
+            </div>
+            
+        </div>
+
+        <div class="economy-info">
+            <div id="wallet-display">Dinero Total: $<span id="balance">50.00</span></div>
+            <div id="pack-profit-display">Profit del Sobre: $<span id="current-profit">0.00</span></div>
+        </div>
+    </header>
+
+    <main id="pack-container">
+        <p class="placeholder-text">Selecciona una colección y pulsa el botón para empezar.</p>
+    </main>
+
+    <section id="album-screen" style="display: none;">
+        <div class="album-nav">
+            <button id="back-to-game">⬅ Volver al Tapete</button>
+            <div class="album-filters">
+                <div class="album-tabs" style="display: flex; gap: 10px; margin-bottom: 15px; width: 100%;">
+                    <button id="btn-view-normal" style="flex: 1; padding: 10px; background: #2a75bb; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">📦 Álbum Común</button>
+                    <button id="btn-view-psa" style="flex: 1; padding: 10px; background: #333; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">🏆 Cámara PSA</button>
+                </div>
+                <button id="view-valuable-btn">⭐ Ver más valiosas</button>
+                
+                <div class="search-container" style="display: flex; gap: 5px;">
+                    <input type="text" id="album-search" placeholder="🔍 Buscar Pokémon..." 
+                        style="padding: 8px; border-radius: 5px; border: 1px solid #444; background: #222; color: white; width: 180px;">
+                    
+                    <button id="global-search-btn" title="Buscar en todas las colecciones"
+                            style="background: var(--accent); color: white; border-radius: 5px; padding: 5px 12px; cursor: pointer; border: none; font-weight: bold;">
+                        Mundial
+                    </button>
+                </div>
+
+                <div id="collection-stats">Progreso Set: <span id="collection-progress">0/0</span></div>
+            </div>
+        </div>
+        
+        <div id="album-grid"></div>
+    </section>
+
+    <footer>
+        <p>Inventario: <span id="inventory-count">0</span> cartas únicas</p>
+    </footer>
+
+    <div id="modal-overlay">
+        <div class="modal-content">
+            <div id="zoomed-card"></div>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>>
