@@ -1061,3 +1061,17 @@ footer span { color: var(--gold); font-weight: bold; }
         padding: 10px;
     }
 }
+
+/* --- Ajuste extra: tapete móvil con altura mínima para ver las cartas laterales --- */
+@media (max-width: 600px) {
+    #pack-container {
+        /* Altura suficiente para que las cartas apiladas a los lados sean visibles */
+        min-height: 72vw;
+        overflow: visible !important;
+    }
+
+    /* Las cartas laterales (aside) no se recortan */
+    .card.aside {
+        overflow: visible !important;
+    }
+}
