@@ -91,15 +91,15 @@ export function sellCard(cardId, price, quantityToSell = 1) {
 }
 
 // --- SISTEMA DE GRADUACIÓN PASO A PASO ---
-const GRADING_COST = 50.00;
+const GRADING_COST = 15.00;
 
 export function gradeCard(card) { // <-- Ahora recibe el objeto 'card' completo
     let data = getInventoryData();
-    const GRADING_COST = 50;
+    const GRADING_COST = 15;
     const cardId = card.id; 
     
     // 1. Verificaciones básicas
-    if (data.wallet < GRADING_COST) return { success: false, msg: "Dinero insuficiente ($50)" };
+    if (data.wallet < GRADING_COST) return { success: false, msg: "Dinero insuficiente ($15)" };
     const cardEntry = data.owned_cards[cardId];
     if (!cardEntry || cardEntry.quantity <= 0) return { success: false, msg: "No tienes esta carta" };
 
