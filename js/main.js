@@ -544,12 +544,21 @@ async function loadSetsIntoSelector() {
     const sets = await fetchAllSets();
     if (!sets) return;
 
+    const resetToPlaceholder = () => {
+        // Resetea el set actual y deshabilita el boton hasta que el usuario elija
+        currentSetData = null;
+        currentPackPrice = 5.00;
+        openBtn.disabled = true;
+        openBtn.innerText = 'Selecciona una promo';
+        const profitDisplay = document.getElementById('current-profit');
+        if (profitDisplay) profitDisplay.innerText = '0.00';
+    };
+
     const applyOrder = () => {
         const order = orderSelector.value;
         let sortedSets = [...sets];
 
         if (order === 'alphabetical') {
-            // Orden de la A a la Z por nombre
             sortedSets.sort((a, b) => a.name.localeCompare(b.name));
         } 
         else if (order === 'price-asc' || order === 'price-desc') {
@@ -563,21 +572,22 @@ async function loadSetsIntoSelector() {
             sortedSets.sort((a, b) => new Date(a.releaseDate) - new Date(b.releaseDate));
         } 
         else {
-            // date-new (Por defecto)
             sortedSets.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
         }
 
-        // Rellenar el selector con el nuevo orden
-        setSelector.innerHTML = sortedSets.map(set => 
-            `<option value="${set.id}">${set.name} - $${getPackPrice(set).toFixed(2)}</option>`
-        ).join('');
-        
-        // Importante: No llamar a initSet() aquí si no quieres que el sobre 
-        // cambie solo al cambiar el filtro de orden.
+        // Siempre ponemos el placeholder primero
+        setSelector.innerHTML = 
+            '<option value="" disabled selected>--- Selecciona una promo ---</option>' +
+            sortedSets.map(set => 
+                `<option value="${set.id}">${set.name} - $${getPackPrice(set).toFixed(2)}</option>`
+            ).join('');
+
+        // Al reordenar, forzamos que el jugador vuelva a elegir conscientemente
+        resetToPlaceholder();
     };
 
     orderSelector.addEventListener('change', applyOrder);
-    applyOrder();
+    applyOrder(); // Carga inicial: empieza siempre con el placeholder
 }
 
 
