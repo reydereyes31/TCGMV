@@ -22,6 +22,11 @@ let currentPackPrice = 5.00;
 let currentSetData = null;
 let currentPackProfit = 0;
 
+// --- AUTO-REVEAL & SPACEBAR ---
+let autoRevealActive = false;   // toggle del botón
+let autoRevealTimeout = null;   // referencia al timeout actual para cancelarlo
+let flipNextCard = null;        // función que expone renderPack al exterior
+
 // Elementos del Álbum
 const viewAlbumBtn = document.getElementById('view-album-btn');
 const backToGameBtn = document.getElementById('back-to-game');
@@ -511,6 +516,9 @@ openBtn.addEventListener('click', () => {
     packContainer.style.display = 'flex';
 
     renderPack(newPack);
+
+    // Arrancar auto-reveal si estaba activo
+    // (scheduleNextAutoFlip se llama solo desde renderPack al terminar de repartir)
 });
 
 function editPriceManually(cardId, modalPriceTag, sellBtn) {
@@ -607,14 +615,74 @@ function refreshUI() {
 }
 
 function renderPack(pack) {
-    packContainer.innerHTML = ''; 
-    let cartasReveladas = 0; 
+    packContainer.innerHTML = '';
+    let cartasReveladas = 0;
+    const cardDivs = []; // guardamos referencia a todos los divs para spacebar/auto
+
+    // Función reutilizable que voltea UNA carta dado su div y datos
+    function flipCard(cardDiv, card, index, realPrice) {
+        if (cardDiv.classList.contains('flipped')) return; // ya volteada, nada que hacer
+
+        cardDiv.classList.add('flipped');
+        sfx.play('flip');
+
+        let tiempoDeEspera = 800;
+
+        if (realPrice >= 100) {
+            sfx.play('epic');
+            cardDiv.classList.add('hit-legendary');
+            tiempoDeEspera = 3000;
+            document.body.style.transition = "background-color 0.1s";
+            document.body.style.backgroundColor = "#fff70044";
+            setTimeout(() => document.body.style.backgroundColor = "", 250);
+        } else if (realPrice >= 50) {
+            sfx.play('rare');
+            cardDiv.classList.add('hit-rare');
+            tiempoDeEspera = 1500;
+        } else if (realPrice >= 5) {
+            sfx.play('hit');
+            cardDiv.classList.add('hit-normal');
+            tiempoDeEspera = 1000;
+        }
+
+        cartasReveladas++;
+        if (cartasReveladas === pack.length) {
+            openBtn.disabled = false;
+            updateOpenButton();
+        }
+
+        currentPackProfit += realPrice;
+        const profitDisplay = document.getElementById('current-profit');
+        if (profitDisplay) profitDisplay.innerText = currentPackProfit.toFixed(2);
+
+        addCardToInventory(card.id, realPrice);
+        refreshUI();
+
+        setTimeout(() => {
+            cardDiv.style.pointerEvents = 'none';
+            cardDiv.classList.add('aside');
+            cardDiv.style.zIndex = "5";
+            moveToSide(cardDiv, index);
+            setTimeout(() => { cardDiv.style.pointerEvents = 'auto'; }, 800);
+
+            // Si auto-reveal está activo, programamos la siguiente carta
+            if (autoRevealActive) {
+                scheduleNextAutoFlip(cardDivs, pack);
+            }
+        }, tiempoDeEspera);
+    }
+
+    // Expone al scope externo la función para voltear la próxima carta sin voltear
+    flipNextCard = () => {
+        const next = cardDivs.find(({ div }) => !div.classList.contains('flipped'));
+        if (next) flipCard(next.div, next.card, next.index, next.realPrice);
+    };
 
     pack.forEach((card, index) => {
         const cardDiv = document.createElement('div');
         cardDiv.className = 'card dealing';
         cardDiv.style.zIndex = 100 - index;
-        
+
         // --- CÁLCULO DE PRECIO ---
         const tcg = card.tcgplayer?.prices;
         const cmkt = card.cardmarket?.prices;
@@ -625,11 +693,10 @@ function renderPack(pack) {
         ].filter(p => p !== undefined && p !== null && p > 0);
 
         let realPrice = allPossiblePrices.length > 0 ? Math.max(...allPossiblePrices) : 0;
-        
         if (realPrice === 0) {
             const r = card.rarity ? card.rarity.toLowerCase() : "";
-            if (r.includes('illustration') || r.includes('special') || r.includes('secret')) realPrice = 45.00; 
-            else if (r.includes('ultra') || r.includes('vmax') || r.includes('ex')) realPrice = 15.00; 
+            if (r.includes('illustration') || r.includes('special') || r.includes('secret')) realPrice = 45.00;
+            else if (r.includes('ultra') || r.includes('vmax') || r.includes('ex')) realPrice = 15.00;
             else if (r.includes('rare holo')) realPrice = 4.00;
             else if (r.includes('rare')) realPrice = 1.50;
             else realPrice = 0.15;
@@ -641,73 +708,43 @@ function renderPack(pack) {
                 <div class="card-front" style="background-image: url('${card.images.large}')"></div>
             </div>
             <div class="price-tag">$${realPrice.toFixed(2)}</div>
-        `; 
+        `;
 
-        cardDiv.addEventListener('click', function() {
+        // Guardamos referencia para spacebar y auto-reveal
+        cardDivs.push({ div: cardDiv, card, index, realPrice });
+
+        cardDiv.addEventListener('click', function () {
             if (!this.classList.contains('flipped')) {
-                this.classList.add('flipped');
-                
-                // --- SONIDO Y EFECTOS POR VALOR ---
-                sfx.play('flip'); 
-
-                let tiempoDeEspera = 800; 
-
-                if (realPrice >= 100) {
-                    sfx.play('epic');
-                    this.classList.add('hit-legendary');
-                    tiempoDeEspera = 3000; 
-                    
-                    document.body.style.transition = "background-color 0.1s";
-                    document.body.style.backgroundColor = "#fff70044"; 
-                    setTimeout(() => document.body.style.backgroundColor = "", 250);
-
-                } else if (realPrice >= 50) {
-                    sfx.play('rare');
-                    this.classList.add('hit-rare');
-                    tiempoDeEspera = 1500;
-
-                } else if (realPrice >= 5) {
-                    sfx.play('hit');
-                    this.classList.add('hit-normal');
-                    tiempoDeEspera = 1000;
-                }
-
-                cartasReveladas++;
-                if (cartasReveladas === pack.length) {
-                    openBtn.disabled = false;
-                    updateOpenButton();
-                }
-
-                currentPackProfit += realPrice;
-                const profitDisplay = document.getElementById('current-profit');
-                if (profitDisplay) profitDisplay.innerText = currentPackProfit.toFixed(2);
-                
-                addCardToInventory(card.id, realPrice); 
-                refreshUI(); 
-                
-                // --- MOVIMIENTO CORREGIDO ---
-                setTimeout(() => { 
-                    // 1. Desactivamos el ratón para que no bloquee el movimiento si está encima
-                    this.style.pointerEvents = 'none'; 
-                    this.classList.add('aside'); 
-                    this.style.zIndex = "5";
-                    moveToSide(this, index);                   
-                    // 2. Reactivamos el ratón tras 800ms (cuando termina la animación de CSS)
-                    setTimeout(() => {
-                        this.style.pointerEvents = 'auto';
-                    }, 800);
-                }, tiempoDeEspera);
-
+                flipCard(this, card, index, realPrice);
             } else if (this.classList.contains('aside')) {
-                openZoom(card, realPrice, false); 
+                openZoom(card, realPrice, false);
             }
         });
 
-        setTimeout(() => { 
-            packContainer.appendChild(cardDiv); 
-            sfx.play('place'); 
+        setTimeout(() => {
+            packContainer.appendChild(cardDiv);
+            sfx.play('place');
+
+            // Si auto-reveal estaba activo cuando se abrió el sobre, arrancamos tras repartir
+            if (autoRevealActive && index === pack.length - 1) {
+                scheduleNextAutoFlip(cardDivs, pack);
+            }
         }, index * 100);
     });
+}
+
+// Programa el volteo automático de la siguiente carta sin voltear
+function scheduleNextAutoFlip(cardDivs, pack) {
+    if (autoRevealTimeout) clearTimeout(autoRevealTimeout);
+    if (!autoRevealActive) return;
+
+    const next = cardDivs.find(({ div }) => !div.classList.contains('flipped'));
+    if (!next) return; // todas volteadas
+
+    // Delay base entre cartas: 900ms. Se alarga si la anterior era hit legendario (ya gestionado en flipCard)
+    autoRevealTimeout = setTimeout(() => {
+        if (autoRevealActive) next.div.click();
+    }, 900);
 }
 
 function moveToSide(cardEl, index) {
@@ -1283,3 +1320,65 @@ async function initializeApp() {
         });
     }
 }
+
+// ═══════════════════════════════════════════
+//  SPACEBAR + AUTO-REVEAL
+// ═══════════════════════════════════════════
+
+// Barra espaciadora → voltea la siguiente carta
+document.addEventListener('keydown', (e) => {
+    // Solo actúa si el modal está cerrado y hay cartas en el tapete
+    if (e.code !== 'Space') return;
+    if (modalOverlay.style.display === 'flex') return;
+    if (albumScreen.style.display === 'block') return;
+
+    e.preventDefault(); // evita scroll de página
+    if (flipNextCard) flipNextCard();
+});
+
+// Botón Auto-Reveal: se inyecta junto al botón de abrir sobre
+(function createAutoRevealButton() {
+    const btn = document.createElement('button');
+    btn.id = 'auto-reveal-btn';
+    btn.innerText = '⚡ Auto: OFF';
+    btn.title = 'Activar/desactivar volteo automático de cartas';
+    btn.style.cssText = `
+        background: #333;
+        color: #aaa;
+        border: 1px solid #555;
+        padding: 10px 15px;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    `;
+
+    btn.addEventListener('click', () => {
+        autoRevealActive = !autoRevealActive;
+
+        if (autoRevealActive) {
+            btn.innerText = '⚡ Auto: ON';
+            btn.style.background = '#2a75bb';
+            btn.style.color = 'white';
+            btn.style.border = '1px solid #4a95db';
+            btn.style.boxShadow = '0 0 10px rgba(42,117,187,0.4)';
+            // Si ya hay cartas en el tapete sin voltear, arrancamos ya
+            if (flipNextCard) flipNextCard();
+        } else {
+            btn.innerText = '⚡ Auto: OFF';
+            btn.style.background = '#333';
+            btn.style.color = '#aaa';
+            btn.style.border = '1px solid #555';
+            btn.style.boxShadow = 'none';
+            if (autoRevealTimeout) {
+                clearTimeout(autoRevealTimeout);
+                autoRevealTimeout = null;
+            }
+        }
+    });
+
+    // Insertamos el botón justo después del botón de abrir sobre
+    openBtn.insertAdjacentElement('afterend', btn);
+})();
