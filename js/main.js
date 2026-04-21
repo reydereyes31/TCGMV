@@ -61,39 +61,95 @@ globalSearchBtn.addEventListener('click', async () => {
 });
 
 function renderGlobalResults(cards) {
-    const inventory = getInventoryData().owned_cards;
+    const data = getInventoryData();
+    const inventory = data.owned_cards;
+    const psaCards  = data.psa_cards || [];
     albumGrid.innerHTML = '';
-    
-    // Cambiamos el contador para indicar que es búsqueda global
+
     collectionProgress.innerText = `Resultados encontrados: ${cards.length}`;
 
     cards.forEach(card => {
-        const isOwned = inventory[card.id];
-        const slot = document.createElement('div');
-        slot.className = `album-card-slot ${isOwned ? 'owned' : 'missing'}`;
-        
-        slot.innerHTML = `
-            <div class="album-card-img" style="background-image: url('${card.images.small}'); ${!isOwned ? 'filter: brightness(0.2) grayscale(1);' : ''}">
-                ${isOwned ? `<div class="card-count">x${isOwned.quantity}</div>` : ''}
-            </div>
-            <div style="padding: 5px; text-align: center;">
-                <div style="color: var(--gold); font-size: 0.6rem; font-weight: bold; text-transform: uppercase;">
-                    ${card.set.name}
-                </div>
-                <div style="font-size: 0.75rem; color: ${isOwned ? '#fff' : '#888'};">
-                    ${card.name}
-                </div>
-                ${isOwned ? `
-                    <div style="color: var(--success); font-size: 0.75rem; font-weight: bold;">
-                        $${isOwned.lastPrice.toFixed(2)}
-                    </div>
-                ` : ''}
-            </div>
-        `;
+        const isOwned = inventory[card.id];  // entrada normal (puede ser null)
 
-        if (isOwned) {
+        // Buscar todas las slabs PSA de esta carta y quedarnos con la de mejor nota
+        const psaSlabs = psaCards.filter(s => s.cardId === card.id);
+        const bestPSA  = psaSlabs.length
+            ? psaSlabs.reduce((best, s) => s.grade > best.grade ? s : best)
+            : null;
+
+        const hasAny = isOwned || bestPSA;
+        const slot = document.createElement('div');
+        slot.className = `album-card-slot ${hasAny ? 'owned' : 'missing'}`;
+
+        // ── Imagen (gris si no la tienes de ninguna forma) ──
+        const imgDiv = document.createElement('div');
+        imgDiv.className = 'album-card-img';
+        imgDiv.style.backgroundImage = `url('${card.images.small}')`;
+        if (!hasAny) imgDiv.style.filter = 'brightness(0.2) grayscale(1)';
+
+        // Contador de copias normales (esquina inferior derecha)
+        if (isOwned && isOwned.quantity > 0) {
+            const countBadge = document.createElement('div');
+            countBadge.className = 'card-count';
+            countBadge.innerText = `x${isOwned.quantity}`;
+            imgDiv.appendChild(countBadge);
+        }
+
+        // Etiqueta PSA (esquina superior derecha, solo si tiene alguna en PSA)
+        if (bestPSA) {
+            const psaBadge = document.createElement('div');
+            const isGem = bestPSA.grade === 10;
+            psaBadge.innerText = `PSA ${bestPSA.grade}`;
+            psaBadge.style.cssText = `
+                position: absolute;
+                top: 4px;
+                right: 4px;
+                background: ${isGem
+                    ? 'linear-gradient(45deg,#bf953f,#fcf6ba,#b38728)'
+                    : '#d10000'};
+                color: ${isGem ? '#000' : '#fff'};
+                font-size: 9px;
+                font-weight: bold;
+                padding: 2px 5px;
+                border-radius: 4px;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+                z-index: 10;
+                white-space: nowrap;
+                letter-spacing: 0.5px;
+            `;
+            imgDiv.appendChild(psaBadge);
+        }
+
+        slot.appendChild(imgDiv);
+
+        // ── Info inferior ──
+        const infoDiv = document.createElement('div');
+        infoDiv.style.cssText = 'padding:5px; text-align:center;';
+        infoDiv.innerHTML = `
+            <div style="color:var(--gold);font-size:0.6rem;font-weight:bold;text-transform:uppercase;">
+                ${card.set.name}
+            </div>
+            <div style="font-size:0.75rem;color:${hasAny ? '#fff' : '#888'};">
+                ${card.name}
+            </div>
+            ${isOwned ? `
+                <div style="color:var(--success);font-size:0.75rem;font-weight:bold;">
+                    $${isOwned.lastPrice.toFixed(2)}
+                </div>
+            ` : ''}
+            ${bestPSA && !isOwned ? `
+                <div style="color:#d10000;font-size:0.7rem;font-weight:bold;">
+                    solo en PSA
+                </div>
+            ` : ''}
+        `;
+        slot.appendChild(infoDiv);
+
+        // Click: abre zoom solo si tiene copias normales en inventario
+        if (isOwned && isOwned.quantity > 0) {
             slot.onclick = () => openZoom(card, isOwned.lastPrice, true);
         }
+
         albumGrid.appendChild(slot);
     });
 }
@@ -1382,3 +1438,4 @@ document.addEventListener('keydown', (e) => {
     // Insertamos el botón justo después del botón de abrir sobre
     openBtn.insertAdjacentElement('afterend', btn);
 })();
+
