@@ -680,6 +680,71 @@ function refreshUI() {
     }
 }
 
+
+// ─────────────────────────────────────────────────────────────
+//  getBestPrice(card)
+//  Extrae el mejor precio disponible de TODAS las fuentes de la
+//  API y aplica un suelo inteligente por rareza cuando el precio
+//  real parece incorrecto (0, null, o demasiado bajo).
+// ─────────────────────────────────────────────────────────────
+function getBestPrice(card) {
+    const tcg  = card.tcgplayer?.prices  || {};
+    const cmkt = card.cardmarket?.prices || {};
+
+    // 1. Recogemos TODOS los campos de precio disponibles
+    const candidates = [
+        // CardMarket
+        cmkt.averageSellPrice,
+        cmkt.avg1,
+        cmkt.avg7,
+        cmkt.avg30,
+        cmkt.lowPrice,
+        cmkt.trendPrice,
+        // TCGPlayer — todas las variantes
+        tcg.holofoil?.market,       tcg.holofoil?.mid,
+        tcg.reverseHolofoil?.market,tcg.reverseHolofoil?.mid,
+        tcg.normal?.market,         tcg.normal?.mid,
+        tcg.unlimitedHolofoil?.market,
+        tcg['1stEditionHolofoil']?.market,
+        tcg['1stEdition']?.market,
+        tcg.unlimitedNormal?.market,
+    ].filter(p => typeof p === 'number' && p > 0);
+
+    // 2. Suelos mínimos por rareza (para detectar precios "raro-bajos")
+    const r = (card.rarity || '').toLowerCase();
+    let rarityFloor = 0.10;   // common/unknown
+    if      (r.includes('hyper') || r.includes('secret'))            rarityFloor = 20.00;
+    else if (r.includes('special illustration') || r.includes('special ill')) rarityFloor = 40.00;
+    else if (r.includes('illustration rare'))                        rarityFloor = 15.00;
+    else if (r.includes('ultra') || r.includes('vmax') || (r.includes('rare') && r.includes('ex'))) rarityFloor = 8.00;
+    else if (r.includes('rare holo') || r.includes('rare v'))       rarityFloor = 3.00;
+    else if (r.includes('rare'))                                     rarityFloor = 1.00;
+    else if (r.includes('uncommon'))                                 rarityFloor = 0.20;
+
+    // 3. Filtramos candidatos que estén por encima del suelo de rareza
+    //    (evita aceptar un $0.05 para una ultra rare)
+    const validCandidates = candidates.filter(p => p >= rarityFloor);
+
+    if (validCandidates.length > 0) {
+        // Usamos la mediana en lugar del máximo para evitar picos extremos
+        const sorted = [...validCandidates].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    // 4. Fallback final por rareza (ningún precio pasó el filtro)
+    if      (r.includes('hyper') || r.includes('secret'))            return 50.00;
+    else if (r.includes('special illustration') || r.includes('special ill')) return 80.00;
+    else if (r.includes('illustration rare'))                        return 25.00;
+    else if (r.includes('ultra') || r.includes('vmax') || (r.includes('rare') && r.includes('ex'))) return 15.00;
+    else if (r.includes('rare holo') || r.includes('rare v'))       return 5.00;
+    else if (r.includes('rare'))                                     return 1.50;
+    else if (r.includes('uncommon'))                                 return 0.25;
+    return 0.10;
+}
+
 function renderPack(pack) {
     packContainer.innerHTML = '';
     let cartasReveladas = 0;
@@ -843,10 +908,13 @@ function moveToSide(cardEl, index) {
 }
 
 async function updatePriceLive(cardId, modalPriceTag, sellBtn, backupPrice) {
-    console.log(`API: Buscando precio para ${cardId}...`);
+    console.log(`API: Actualizando precio para ${cardId}...`);
     modalPriceTag.innerText = "Buscando...";
     const refreshBtn = document.getElementById('refresh-price-btn');
-    if (refreshBtn) refreshBtn.style.opacity = "0.5";
+    if (refreshBtn) {
+        refreshBtn.style.opacity = "0.5";
+        refreshBtn.disabled = true;
+    }
 
     try {
         const response = await fetch(`https://api.pokemontcg.io/v2/cards/${cardId}`, {
@@ -854,30 +922,49 @@ async function updatePriceLive(cardId, modalPriceTag, sellBtn, backupPrice) {
         });
         const json = await response.json();
         const card = json.data;
-        const tcg = card.tcgplayer?.prices;
-        const cmkt = card.cardmarket?.prices;
-        const prices = [tcg?.holofoil?.market, tcg?.normal?.market, cmkt?.averageSellPrice].filter(p => p > 0);
 
-        let newPrice = prices.length > 0 ? Math.max(...prices) : backupPrice;
-        if (!newPrice || newPrice <= 0) newPrice = 1.50;
+        // Usamos getBestPrice para tener la misma lógica que al abrir el sobre
+        let newPrice = getBestPrice(card);
 
-        modalPriceTag.innerText = `Market Value: $${newPrice.toFixed(2)}`;
-        modalPriceTag.style.color = "#00ff00"; 
+        // Si getBestPrice devuelve el fallback y tenemos backupPrice razonable, comparamos
+        // y nos quedamos con el mayor para no degradar un precio que ya teníamos bien
+        if (backupPrice && backupPrice > newPrice) {
+            // Solo aceptamos el backup si es coherente con la rareza (no sospechoso)
+            const r = (card.rarity || '').toLowerCase();
+            const isSuspicious = (
+                (r.includes('secret') || r.includes('ultra') || r.includes('illustration')) 
+                && backupPrice > 500
+            );
+            if (!isSuspicious) newPrice = backupPrice;
+        }
+
+        modalPriceTag.innerText = `$${newPrice.toFixed(2)}`;
+        modalPriceTag.style.color = "#00ff00";
 
         if (sellBtn) {
             sellBtn.innerText = `VENDER POR $${newPrice.toFixed(2)}`;
             sellBtn.onclick = () => ejecutarVenta(card, newPrice);
         }
 
+        // Guardamos el precio actualizado en el inventario
         const inv = getInventoryData();
         if (inv.owned_cards[cardId]) {
             inv.owned_cards[cardId].lastPrice = newPrice;
             saveInventoryData(inv);
         }
+
+        console.log(`Precio actualizado para ${cardId}: $${newPrice.toFixed(2)}`);
+
     } catch (e) {
-        modalPriceTag.innerText = `Market Value: $${backupPrice.toFixed(2)}`;
+        console.error("Error actualizando precio:", e);
+        // Si falla la red, mantenemos el precio que tenía
+        modalPriceTag.innerText = `$${backupPrice.toFixed(2)}`;
+        modalPriceTag.style.color = "#ffeb3b"; // amarillo = dato viejo
     } finally {
-        if (refreshBtn) refreshBtn.style.opacity = "1";
+        if (refreshBtn) {
+            refreshBtn.style.opacity = "1";
+            refreshBtn.disabled = false;
+        }
     }
 }
 
@@ -964,11 +1051,7 @@ function openZoom(card, price, canSell) {
         refreshBtn.onclick = (e) => { e.stopPropagation(); updatePriceLive(card.id, modalPriceTag, sellBtn, currentPrice); };
         toolsContainer.appendChild(refreshBtn);
 
-        const editBtn = document.createElement('button');
-        editBtn.id = 'edit-price-btn';
-        editBtn.innerHTML = '✏️';
-        editBtn.onclick = (e) => { e.stopPropagation(); editPriceManually(card.id, modalPriceTag, sellBtn); };
-        toolsContainer.appendChild(editBtn);
+        // Botón de edición manual eliminado (opción D: precios automáticos)
 
         // Link de CardMarket
         if (card.cardmarket?.url) {
