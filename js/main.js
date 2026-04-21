@@ -156,19 +156,39 @@ function renderGlobalResults(cards) {
 }
 
 const sfx = {
-    flip: new Audio('assets/sounds/flip.mp3'),
-    hit: new Audio('assets/sounds/hit.mp3'),           // +$5
-    rare: new Audio('assets/sounds/rare_hit.mp3'),     // +$50
-    epic: new Audio('assets/sounds/legendary_hit.mp3'), // +$100
-    
+    flip:  new Audio('assets/sounds/flip.mp3'),
+    hit:   new Audio('assets/sounds/hit.mp3'),
+    rare:  new Audio('assets/sounds/rare_hit.mp3'),
+    epic:  new Audio('assets/sounds/legendary_hit.mp3'),
+    place: new Audio('assets/sounds/place.mp3'),
+
+    // Desbloquea el contexto de audio con la primera interacción del usuario.
+    // Los navegadores modernos bloquean audio hasta que hay un gesto humano.
+    _unlocked: false,
+    unlock() {
+        if (this._unlocked) return;
+        // Reproducimos todos los audios en volumen 0 para "despertar" el contexto
+        Object.values(this).forEach(v => {
+            if (v instanceof Audio) {
+                const s = v.cloneNode();
+                s.volume = 0;
+                s.play().catch(() => {});
+            }
+        });
+        this._unlocked = true;
+    },
+
     play(sound) {
         if (this[sound]) {
-            const s = this[sound].cloneNode(); // Clonamos para permitir sonidos simultáneos
+            const s = this[sound].cloneNode();
             s.volume = 0.6;
-            s.play().catch(e => console.warn("Audio bloqueado por el navegador:", e));
+            s.play().catch(e => console.warn("Audio bloqueado:", e));
         }
     }
 };
+
+// Desbloquear audio con el primer click en cualquier parte de la página
+document.addEventListener('click', () => sfx.unlock(), { once: true });
 
 // --- NAVEGACIÓN ---
 
@@ -199,14 +219,22 @@ async function initSet() {
     setSelector.disabled = true;
     orderSelector.disabled = true;
 
+    // Mostrar spinner en el tapete mientras carga
+    packContainer.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;color:#aaa;">
+            <div class="loader" style="width:36px;height:36px;border-width:4px;"></div>
+            <div style="font-size:0.9rem;">Cargando colección...</div>
+        </div>
+    `;
+    packContainer.style.display = 'flex';
+    albumScreen.style.display = 'none';
+
     try {
         const response = await fetchSetData(setId);
 
-        // Verificación anti-carrera: si el selector ya tiene otro valor
-        // (el usuario consiguió cambiarlo antes de que bloqueáramos), abortamos
-        // esta carga y dejamos que el nuevo 'change' lo gestione.
         if (setSelector.value !== setId) {
             console.warn("initSet: set cambiado durante la carga, abortando.");
+            packContainer.innerHTML = '<p class="placeholder-text">Selecciona una colección y pulsa el botón para empezar.</p>';
             return;
         }
 
@@ -224,11 +252,23 @@ async function initSet() {
             currentPackPrice = getPackPrice(backupDetails);
         }
 
+        // Persistencia
+        localStorage.setItem('pokesim_last_set', setId);
+
         openBtn.disabled = false;
         openBtn.innerText = `Abrir Sobre ($${currentPackPrice.toFixed(2)})`;
 
         const costDisplay = document.getElementById('current-pack-cost');
         if (costDisplay) costDisplay.innerText = `$${currentPackPrice.toFixed(2)}`;
+
+        // Aplicar tema de color del header según la era del set
+        applySetTheme(setDetails || {});
+
+        // Limpiar el spinner y mostrar el tapete listo
+        packContainer.innerHTML = '<p class="placeholder-text">¡Colección lista! Pulsa el botón para abrir un sobre 🎴</p>';
+
+        // Actualizar botones multi con el precio correcto
+        updateOpenButton();
 
         if (albumScreen.style.display === 'block') renderAlbum();
         refreshUI();
@@ -237,14 +277,68 @@ async function initSet() {
         console.error("Error en initSet:", error);
         openBtn.innerText = "Error al cargar — reintenta";
         openBtn.disabled = false;
+        packContainer.innerHTML = '<p class="placeholder-text">Error al cargar. Selecciona otra colección.</p>';
+        showToast('❌ Error cargando la colección, reintenta', 'warning');
     } finally {
-        // Siempre desbloqueamos los selectores al terminar (bien o mal)
         setSelector.disabled = false;
         orderSelector.disabled = false;
     }
 
-    updateOpenButton();
     refreshUI();
+}
+
+// ── Tema de color del header según la era/serie del set ──────
+function applySetTheme(setDetails) {
+    const series = (setDetails?.series || '').toLowerCase();
+    const name   = (setDetails?.name   || '').toLowerCase();
+
+    let bg1 = '#252525', bg2 = '#1a1a1a';
+    let accentColor = '#ffcb05', btnText = '#1a1a1a';
+
+    if (series.includes('scarlet') || series.includes('violet')) {
+        bg1 = '#4a0a2a'; bg2 = '#2a0a4a';
+        accentColor = '#e040fb'; btnText = 'white';
+    } else if (series.includes('sword') || series.includes('shield')) {
+        bg1 = '#0a1a3a'; bg2 = '#1a0a2a';
+        accentColor = '#42a5f5'; btnText = 'white';
+    } else if (series.includes('sun') || series.includes('moon')) {
+        bg1 = '#3a1a00'; bg2 = '#1a0a00';
+        accentColor = '#ff9800'; btnText = 'white';
+    } else if (series.includes('xy')) {
+        bg1 = '#0a1a3a'; bg2 = '#1a0a0a';
+        accentColor = '#ef5350'; btnText = 'white';
+    } else if (series.includes('black') || series.includes('white')) {
+        bg1 = '#1a1a1a'; bg2 = '#0a0a0a';
+        accentColor = '#eeeeee'; btnText = '#111';
+    } else if (series.includes('heartgold') || series.includes('soulsilver')) {
+        bg1 = '#2a1a00'; bg2 = '#0a1a0a';
+        accentColor = '#ffd54f'; btnText = '#111';
+    } else if (series.includes('platinum') || series.includes('diamond') || series.includes('pearl')) {
+        bg1 = '#0a1a2a'; bg2 = '#1a1a2a';
+        accentColor = '#b0bec5'; btnText = '#111';
+    } else if (series.includes('ex')) {
+        bg1 = '#2a0a0a'; bg2 = '#1a0a0a';
+        accentColor = '#ef9a9a'; btnText = '#1a1a1a';
+    } else if (series.includes('neo') || series.includes('base') || series.includes('gym') || series.includes('e-card')) {
+        bg1 = '#0a2a0a'; bg2 = '#0a1a0a';
+        accentColor = '#ffcb05'; btnText = '#1a1a1a';
+    }
+
+    const header = document.querySelector('header');
+    if (header) {
+        header.style.transition = 'background 0.7s ease, box-shadow 0.7s ease';
+        header.style.background = `linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%)`;
+        header.style.boxShadow  = `0 4px 20px rgba(0,0,0,0.7)`;
+    }
+
+    // Color del botón abrir según era
+    openBtn.style.transition = 'background-color 0.5s ease, color 0.5s ease';
+    openBtn.style.backgroundColor = accentColor;
+    openBtn.style.color = btnText;
+
+    // Título del tab con el nombre del set
+    const setName = setDetails?.name || 'Simulador';
+    document.title = `PokeVault — ${setName}`;
 }
 
 
@@ -472,8 +566,18 @@ function renderAlbum() {
         });
 
         filteredPSA.sort((a, b) => {
-            const getVal = (s) => s.basePrice * (s.grade === 10 ? 10 : s.grade === 9 ? 3 : s.grade === 8 ? 1.5 : 1);
-            // ROI = cuánto vale la carta PSA vs su precio base (ganancia multiplicada)
+            // Multiplicadores idénticos a los de openZoomPSA
+            const getMulti = (grade) => {
+                if (grade === 10) return 10;
+                if (grade === 9)  return 3;
+                if (grade === 8)  return 1.5;
+                if (grade === 7)  return 1;
+                if (grade === 6)  return 0.85;
+                if (grade === 5)  return 0.7;
+                if (grade === 4)  return 0.5;
+                return 0.3; // <= 3
+            };
+            const getVal = (s) => s.basePrice * getMulti(s.grade);
             const getRoi = (s) => getVal(s) - s.basePrice;
             if (orderType === 'price-desc') return getVal(b) - getVal(a);
             if (orderType === 'price-asc')  return getVal(a) - getVal(b);
@@ -840,7 +944,7 @@ async function loadSetsIntoSelector() {
         if (profitDisplay) profitDisplay.innerText = '0.00';
     };
 
-    const applyOrder = () => {
+    const applyOrder = (isInitialLoad = false) => {
         const order = orderSelector.value;
         let sortedSets = [...sets];
 
@@ -861,19 +965,27 @@ async function loadSetsIntoSelector() {
             sortedSets.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
         }
 
-        // Siempre ponemos el placeholder primero
+        const lastSet = localStorage.getItem('pokesim_last_set');
+
         setSelector.innerHTML = 
-            '<option value="" disabled selected>--- Selecciona una promo ---</option>' +
+            '<option value="" disabled>--- Selecciona una promo ---</option>' +
             sortedSets.map(set => 
-                `<option value="${set.id}">${set.name} - $${getPackPrice(set).toFixed(2)}</option>`
+                `<option value="${set.id}"${set.id === lastSet ? ' selected' : ''}>${set.name} - $${getPackPrice(set).toFixed(2)}</option>`
             ).join('');
 
-        // Al reordenar, forzamos que el jugador vuelva a elegir conscientemente
-        resetToPlaceholder();
+        // En la carga inicial, si hay un set guardado NO reseteamos — lo restauramos
+        // En cambios de orden posteriores sí reseteamos para forzar re-selección
+        if (isInitialLoad && lastSet && sortedSets.find(s => s.id === lastSet)) {
+            // No llamamos resetToPlaceholder — initSet lo cargará desde startApp
+        } else if (!isInitialLoad) {
+            resetToPlaceholder();
+        } else {
+            resetToPlaceholder();
+        }
     };
 
-    orderSelector.addEventListener('change', applyOrder);
-    applyOrder(); // Carga inicial: empieza siempre con el placeholder
+    orderSelector.addEventListener('change', () => applyOrder(false));
+    applyOrder(true); // Carga inicial
 }
 
 
@@ -1052,6 +1164,60 @@ function showPackHistory() {
     document.getElementById('close-history').onclick = () => overlay.remove();
 }
 
+
+// ── Sistema de toasts ────────────────────────────────────────
+// showToast unificada más abajo
+
+
+// ─────────────────────────────────────────────────────────────
+//  Sistema de toasts (notificaciones flotantes)
+// ─────────────────────────────────────────────────────────────
+function showToast(msg, type = 'info', duration = 3500) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.style.cssText = `
+            position: fixed; bottom: 24px; right: 24px;
+            z-index: 9999; display: flex; flex-direction: column;
+            gap: 10px; pointer-events: none;
+        `;
+        document.body.appendChild(container);
+    }
+
+    const colors = {
+        info:    { bg: '#1a1a2e', border: '#2a75bb', icon: 'ℹ️' },
+        success: { bg: '#1a2e1a', border: '#4caf50', icon: '✅' },
+        gold:    { bg: '#2e2a0a', border: '#ffcb05', icon: '💰' },
+        warning: { bg: '#2e1a0a', border: '#ff9800', icon: '⚠️' },
+    };
+    const c = colors[type] || colors.info;
+
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        background: ${c.bg}; border: 1px solid ${c.border};
+        color: white; padding: 12px 18px; border-radius: 10px;
+        font-size: 0.88rem; font-weight: bold;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        opacity: 0; transform: translateX(40px);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+        pointer-events: none; max-width: 280px; line-height: 1.4;
+    `;
+    toast.innerHTML = `${c.icon} ${msg}`;
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(0)';
+    });
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(40px)';
+        setTimeout(() => toast.remove(), 350);
+    }, duration);
+}
+
 // --- UTILIDADES ---
 
 function refreshUI() {
@@ -1133,13 +1299,47 @@ function getBestPrice(card) {
 
 function renderPack(pack) {
     packContainer.innerHTML = '';
+    packContainer.style.position = 'relative';
     let cartasReveladas = 0;
-    const cardDivs = []; // guardamos referencia a todos los divs para spacebar/auto
+    const cardDivs = [];
+    let gridScheduled = false;   // evita que mostrarGridFinal se llame más de una vez
+    let gridTimeout   = null;
 
-    // Función reutilizable que voltea UNA carta dado su div y datos
+    // ── FASE 1: Mazo apilado en el centro ─────────────────────────────────
+    // Todas las cartas se colocan apiladas ligeramente rotadas (efecto baraja)
+    // Solo la carta del top (última en el array = index más alto) es clickable
+
+    function actualizarMazo() {
+        cardDivs.forEach(({ div }, i) => {
+            const sinVoltear = cardDivs.filter(c => !c.div.classList.contains('flipped'));
+            const posEnMazo  = sinVoltear.indexOf(cardDivs[i]);
+            if (posEnMazo === -1) return; // ya volteada, no tocar
+
+            const esTop = posEnMazo === sinVoltear.length - 1;
+            const rot   = (posEnMazo - sinVoltear.length / 2) * 2.5;
+            const yOff  = posEnMazo * -1.5;
+
+            div.style.transition  = 'transform 0.3s ease, box-shadow 0.3s ease';
+            div.style.transform   = `translate(-50%, -50%) rotate(${rot}deg) translateY(${yOff}px)`;
+            div.style.left        = '50%';
+            div.style.top         = '50%';
+            div.style.zIndex      = posEnMazo + 1;
+            div.style.cursor      = esTop ? 'pointer' : 'default';
+            div.style.pointerEvents = esTop ? 'auto' : 'none';
+
+            // Resaltar la carta del top con un brillo suave
+            div.style.boxShadow = esTop
+                ? '0 0 20px rgba(255,203,5,0.5), 0 10px 30px rgba(0,0,0,0.6)'
+                : '0 5px 15px rgba(0,0,0,0.4)';
+        });
+    }
+
+    // ── Función de volteo ──────────────────────────────────────────────────
     function flipCard(cardDiv, card, index, realPrice) {
-        if (cardDiv.classList.contains('flipped')) return; // ya volteada, nada que hacer
+        if (cardDiv.classList.contains('flipped')) return;
 
+        // Quitar el brillo del mazo al voltear
+        cardDiv.style.boxShadow = '';
         cardDiv.classList.add('flipped');
         sfx.play('flip');
 
@@ -1163,19 +1363,6 @@ function renderPack(pack) {
         }
 
         cartasReveladas++;
-        if (cartasReveladas === pack.length) {
-            openBtn.disabled = false;
-            updateOpenButton();
-            // Desbloquear selectores — ya no se puede bugear cambiando set a mitad
-            setSelector.disabled = false;
-            orderSelector.disabled = false;
-            // Actualizar el profit real en el historial del sobre x1
-            if (window._currentHistEntry) {
-                window._currentHistEntry.profit = currentPackProfit;
-                window._currentHistEntry.net    = currentPackProfit - window._currentHistEntry.cost;
-                window._currentHistEntry = null;
-            }
-        }
 
         currentPackProfit += realPrice;
         const profitDisplay = document.getElementById('current-profit');
@@ -1184,49 +1371,196 @@ function renderPack(pack) {
         addCardToInventory(card.id, realPrice);
         refreshUI();
 
+        // Actualizar el mazo (la siguiente carta sube al top)
+        setTimeout(() => actualizarMazo(), 200);
+
         setTimeout(() => {
             cardDiv.style.pointerEvents = 'none';
             cardDiv.classList.add('aside');
-            cardDiv.style.zIndex = "5";
+            // Mover al lateral igual que antes, para que no tapen el mazo
             moveToSide(cardDiv, index);
             setTimeout(() => { cardDiv.style.pointerEvents = 'auto'; }, 800);
 
-            // Si auto-reveal está activo, programamos la siguiente carta
-            if (autoRevealActive) {
-                scheduleNextAutoFlip(cardDivs, pack);
+            if (autoRevealActive) scheduleNextAutoFlip(cardDivs, pack);
+
+            // ── FASE 2: Última carta → mostrar grid (una sola vez) ──────
+            if (cartasReveladas === pack.length && !gridScheduled) {
+                gridScheduled = true;
+                if (gridTimeout) clearTimeout(gridTimeout);
+                gridTimeout = setTimeout(() => mostrarGridFinal(cardDivs), 600);
             }
         }, tiempoDeEspera);
     }
 
-    // Expone al scope externo la función para voltear la próxima carta sin voltear
+    // ── Grid final con todas las cartas ───────────────────────────────────
+    function mostrarGridFinal(cardDivs) {
+        // Limpiar el contenedor y cambiar a modo grid
+        packContainer.innerHTML = '';
+        packContainer.style.flexDirection  = 'column';
+        packContainer.style.alignItems     = 'center';
+        packContainer.style.justifyContent = 'center';
+        packContainer.style.padding        = '20px';
+        packContainer.style.overflowY      = 'auto';
+
+        // Wrapper grid
+        const grid = document.createElement('div');
+        grid.id = 'pack-result-grid';
+        grid.style.cssText = `
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 16px;
+            width: 100%;
+            max-width: 800px;
+            margin-bottom: 20px;
+            padding: 0 8px;
+            box-sizing: border-box;
+        `;
+
+        // Ordenar: hits primero (mayor precio)
+        const sorted = [...cardDivs].sort((a, b) => b.realPrice - a.realPrice);
+
+        sorted.forEach(({ card, realPrice }, i) => {
+            const slot = document.createElement('div');
+            slot.style.cssText = `
+                display: flex; flex-direction: column; align-items: center;
+                opacity: 0; transform: translateY(20px);
+                transition: opacity 0.3s ease, transform 0.3s ease;
+                cursor: pointer;
+            `;
+
+            // Color del precio según valor
+            const priceColor = realPrice >= 100 ? '#ffcb05'
+                : realPrice >= 50 ? '#ffffff'
+                : realPrice >= 5  ? '#00d4ff'
+                : '#4caf50';
+
+            const glowStyle = realPrice >= 100
+                ? 'box-shadow: 0 0 18px gold, 0 4px 12px rgba(0,0,0,0.6);'
+                : realPrice >= 50
+                ? 'box-shadow: 0 0 14px white, 0 4px 12px rgba(0,0,0,0.6);'
+                : realPrice >= 5
+                ? 'box-shadow: 0 0 10px #00d4ff, 0 4px 12px rgba(0,0,0,0.5);'
+                : 'box-shadow: 0 4px 12px rgba(0,0,0,0.5);';
+
+            slot.innerHTML = `
+                <div style="
+                    width:110px; height:154px;
+                    background-image: url('${card.images.small}');
+                    background-size: cover; background-position: center;
+                    border-radius: 8px;
+                    ${glowStyle}
+                "></div>
+                <div style="
+                    margin-top: 6px;
+                    background: rgba(0,0,0,0.75);
+                    border: 1px solid ${priceColor}88;
+                    border-radius: 12px;
+                    padding: 2px 8px;
+                    font-size: 0.78rem;
+                    font-weight: bold;
+                    color: ${priceColor};
+                    font-family: 'Courier New', monospace;
+                    white-space: nowrap;
+                ">$${realPrice.toFixed(2)}</div>
+            `;
+
+            slot.onclick = () => openZoom(card, realPrice, false);
+            grid.appendChild(slot);
+
+            // Animación de entrada en cascada
+            setTimeout(() => {
+                slot.style.opacity   = '1';
+                slot.style.transform = 'translateY(0)';
+            }, i * 60);
+        });
+
+        packContainer.appendChild(grid);
+
+        // Botón guardar en álbum
+        const saveBtn = document.createElement('button');
+        saveBtn.id = 'save-to-album-btn';
+        saveBtn.innerHTML = '📦 Guardar en Álbum';
+        saveBtn.style.cssText = `
+            margin-top: 8px;
+            padding: 14px 40px;
+            background: var(--gold);
+            color: #000;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            box-shadow: 0 4px 20px rgba(255,203,5,0.4);
+        `;
+
+        packContainer.appendChild(saveBtn);
+
+        // Aparecer el botón tras las cartas
+        setTimeout(() => {
+            saveBtn.style.opacity   = '1';
+            saveBtn.style.transform = 'translateY(0)';
+        }, sorted.length * 60 + 200);
+
+        // Click en guardar → animación de salida hacia arriba
+        saveBtn.onclick = () => {
+            saveBtn.style.display = 'none';
+            const slots = grid.querySelectorAll('div');
+
+            slots.forEach((slot, i) => {
+                setTimeout(() => {
+                    slot.style.transition = 'transform 0.4s ease, opacity 0.4s ease';
+                    slot.style.transform  = 'translateY(-120vh) rotate(10deg)';
+                    slot.style.opacity    = '0';
+                }, i * 50);
+            });
+
+            // Limpiar tras la animación y desbloquear
+            setTimeout(() => {
+                packContainer.innerHTML = '';
+                packContainer.style.flexDirection  = '';
+                packContainer.style.alignItems     = '';
+                packContainer.style.justifyContent = '';
+                packContainer.style.padding        = '50px';
+                packContainer.style.overflowY      = '';
+
+                openBtn.disabled = false;
+                updateOpenButton();
+                setSelector.disabled  = false;
+                orderSelector.disabled = false;
+
+                if (window._currentHistEntry) {
+                    window._currentHistEntry.profit = currentPackProfit;
+                    window._currentHistEntry.net    = currentPackProfit - window._currentHistEntry.cost;
+                    window._currentHistEntry = null;
+                }
+            }, slots.length * 50 + 500);
+        };
+
+        // Si auto-reveal ON → guardar automáticamente tras 3s
+        if (autoRevealActive) {
+            setTimeout(() => { if (saveBtn.parentNode) saveBtn.click(); }, 3000);
+        }
+    }
+
+    // ── Exponer flipNextCard para spacebar ────────────────────────────────
     flipNextCard = () => {
-        const next = cardDivs.find(({ div }) => !div.classList.contains('flipped'));
-        if (next) flipCard(next.div, next.card, next.index, next.realPrice);
+        // El TOP del mazo es el ÚLTIMO sin voltear, igual que en auto-reveal
+        const sinVoltear = cardDivs.filter(({ div }) => !div.classList.contains('flipped'));
+        const top = sinVoltear[sinVoltear.length - 1];
+        if (top) flipCard(top.div, top.card, top.index, top.realPrice);
     };
 
+    // ── Repartir cartas al mazo ───────────────────────────────────────────
     pack.forEach((card, index) => {
         const cardDiv = document.createElement('div');
         cardDiv.className = 'card dealing';
-        cardDiv.style.zIndex = 100 - index;
+        cardDiv.style.position = 'absolute';
+        cardDiv.style.zIndex   = index + 1;
 
-        // --- CÁLCULO DE PRECIO ---
-        const tcg = card.tcgplayer?.prices;
-        const cmkt = card.cardmarket?.prices;
-        const allPossiblePrices = [
-            cmkt?.averageSellPrice, cmkt?.lowPrice,
-            tcg?.holofoil?.market, tcg?.reverseHolofoil?.market,
-            tcg?.normal?.market, tcg?.unlimitedHolofoil?.market
-        ].filter(p => p !== undefined && p !== null && p > 0);
-
-        let realPrice = allPossiblePrices.length > 0 ? Math.max(...allPossiblePrices) : 0;
-        if (realPrice === 0) {
-            const r = card.rarity ? card.rarity.toLowerCase() : "";
-            if (r.includes('illustration') || r.includes('special') || r.includes('secret')) realPrice = 45.00;
-            else if (r.includes('ultra') || r.includes('vmax') || r.includes('ex')) realPrice = 15.00;
-            else if (r.includes('rare holo')) realPrice = 4.00;
-            else if (r.includes('rare')) realPrice = 1.50;
-            else realPrice = 0.15;
-        }
+        const realPrice = getBestPrice(card);
 
         cardDiv.innerHTML = `
             <div class="card-inner">
@@ -1236,26 +1570,42 @@ function renderPack(pack) {
             <div class="price-tag">$${realPrice.toFixed(2)}</div>
         `;
 
-        // Guardamos referencia para spacebar y auto-reveal
         cardDivs.push({ div: cardDiv, card, index, realPrice });
 
-        cardDiv.addEventListener('click', function () {
-            if (!this.classList.contains('flipped')) {
-                flipCard(this, card, index, realPrice);
-            } else if (this.classList.contains('aside')) {
-                openZoom(card, realPrice, false);
+        // Handler unificado para click manual y auto-reveal
+        function handleFlip() {
+            if (!cardDiv.classList.contains('flipped')) {
+                const sinVoltear = cardDivs.filter(c => !c.div.classList.contains('flipped'));
+                const esTop = sinVoltear[sinVoltear.length - 1]?.div === cardDiv;
+                if (esTop) flipCard(cardDiv, card, index, realPrice);
             }
-        });
+        }
+        // Evento 'flipme' usado por auto-reveal (sin restricción de esTop)
+        function handleAutoFlip() {
+            if (!cardDiv.classList.contains('flipped')) {
+                flipCard(cardDiv, card, index, realPrice);
+            }
+        }
+        cardDiv.addEventListener('click', handleFlip);
+        cardDiv.addEventListener('flipme', handleAutoFlip);
 
         setTimeout(() => {
             packContainer.appendChild(cardDiv);
-            sfx.play('place');
-
-            // Si auto-reveal estaba activo cuando se abrió el sobre, arrancamos tras repartir
-            if (autoRevealActive && index === pack.length - 1) {
-                scheduleNextAutoFlip(cardDivs, pack);
+            // Reproducir place.mp3 cortado a 0.35s para que no se solape
+            {
+                const s = sfx.place.cloneNode();
+                s.volume = 0.5;
+                s.play().catch(() => {});
+                setTimeout(() => { s.pause(); s.currentTime = 0; }, 350);
             }
-        }, index * 100);
+
+            // Colocar en el mazo apilado
+            actualizarMazo();
+
+            if (autoRevealActive && index === pack.length - 1) {
+                setTimeout(() => scheduleNextAutoFlip(cardDivs, pack), 400);
+            }
+        }, index * 80);
     });
 }
 
@@ -1264,12 +1614,17 @@ function scheduleNextAutoFlip(cardDivs, pack) {
     if (autoRevealTimeout) clearTimeout(autoRevealTimeout);
     if (!autoRevealActive) return;
 
-    const next = cardDivs.find(({ div }) => !div.classList.contains('flipped'));
-    if (!next) return; // todas volteadas
+    // El TOP del mazo es la ÚLTIMA carta sin voltear (mayor índice en el array)
+    const sinVoltear = cardDivs.filter(({ div }) => !div.classList.contains('flipped'));
+    if (sinVoltear.length === 0) return; // todas volteadas
 
-    // Delay base entre cartas: 900ms. Se alarga si la anterior era hit legendario (ya gestionado en flipCard)
+    const top = sinVoltear[sinVoltear.length - 1]; // último = encima del mazo
+
     autoRevealTimeout = setTimeout(() => {
-        if (autoRevealActive) next.div.click();
+        if (!autoRevealActive) return;
+        if (!top.div.classList.contains('flipped')) {
+            top.div.dispatchEvent(new CustomEvent('flipme'));
+        }
     }, 900);
 }
 
@@ -1679,10 +2034,22 @@ modalOverlay.addEventListener('mousemove', (e) => {
 
 setSelector.addEventListener('change', initSet);
 
-async function startApp()
- { await loadSetsIntoSelector(); 
+async function startApp() {
+    await loadSetsIntoSelector();
     refreshUI();
- }
+
+    // Restaurar el último set usado si existe
+    const lastSet = localStorage.getItem('pokesim_last_set');
+    if (lastSet && setSelector) {
+        // Buscar la opción en el selector
+        const opt = [...setSelector.options].find(o => o.value === lastSet);
+        if (opt) {
+            setSelector.value = lastSet;
+            // Lanzar initSet para cargar los datos
+            setTimeout(() => initSet(), 100);
+        }
+    }
+}
 
 startApp();
 
@@ -1716,18 +2083,20 @@ function applyPassiveIncome() {
         
         console.log(`Ingreso pasivo: +$${dineroGanado} por ${minutosPasados} min.`);
         refreshUI();
+        // Toast de bienvenida con el ingreso offline
+        setTimeout(() => {
+            showToast(`💰 +$${dineroGanado.toFixed(2)} — bienvenido de vuelta (${minutosPasados} min)`, 'gold', 5000);
+        }, 1500); // pequeño delay para que la UI esté lista
     }
 
     // 2. CALCULO ONLINE (Mientras tienes la pestaña abierta)
     setInterval(() => {
         updateWallet(1.00);
-        
-        // Actualizamos el tiempo en cada dólar para que si cierras justo después, esté al día
         const currentData = getInventoryData();
         currentData.last_income_check = Date.now();
         saveInventoryData(currentData);
-        
         refreshUI();
+        showToast('+$1.00 ingreso pasivo', 'gold', 2000);
     }, 60000);
 }
 

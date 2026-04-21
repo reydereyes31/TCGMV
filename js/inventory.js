@@ -123,7 +123,7 @@ export function gradeCard(card) { // <-- Ahora recibe el objeto 'card' completo
         cardId: card.id,
         grade: resultGrade,
         certNumber: Math.floor(Math.random() * 90000000) + 10000000,
-        basePrice: card.cardmarket?.prices?.averageSellPrice || 1.50,
+        basePrice: marketPrice,
         attempts: 1,
         
         // --- AQUÍ VA EL BLOQUE ---
