@@ -21,6 +21,7 @@ const zoomedCard = document.getElementById('zoomed-card');
 let currentPackPrice = 5.00;
 let currentSetData = null;
 let currentPackProfit = 0;
+let packHistory = []; // historial de los últimos sobres abiertos
 
 // --- AUTO-REVEAL & SPACEBAR ---
 let autoRevealActive = false;   // toggle del botón
@@ -257,12 +258,7 @@ albumSearch.addEventListener('input', () => {
 });
 
 
-// Escuchar cuando el usuario escribe en el buscador
-albumSearch.addEventListener('input', () => {
-    if (albumScreen.style.display === 'block') {
-        renderAlbum();
-    }
-});
+
 
 function renderAlbum() {
     // Si estamos en normal, necesitamos el set. Si estamos en PSA, ya no.
@@ -400,7 +396,23 @@ function renderAlbum() {
             }
         });
 
-        collectionProgress.innerText = `${ownedCount} / ${allCardsInSet.length}`;
+        // Valor total del set (sumando lastPrice de todas las cartas poseídas)
+        const setTotalValue = allCardsInSet.reduce((sum, card) => {
+            const it = data.owned_cards[card.id];
+            return sum + (it ? it.lastPrice * it.quantity : 0);
+        }, 0);
+        const pct = allCardsInSet.length > 0 ? Math.round((ownedCount / allCardsInSet.length) * 100) : 0;
+
+        collectionProgress.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:12px;flex-wrap:wrap;">
+                <span>${ownedCount} / ${allCardsInSet.length} cartas</span>
+                <span style="color:var(--gold);font-weight:bold;">💰 $${setTotalValue.toFixed(2)}</span>
+            </div>
+            <div style="background:#333;border-radius:10px;height:6px;overflow:hidden;">
+                <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#2a75bb,var(--gold));border-radius:10px;transition:width 0.4s ease;"></div>
+            </div>
+            <div style="font-size:0.65rem;color:#888;margin-top:3px;">${pct}% completado</div>
+        `;
     } 
     else {
         // --- MODO CÁMARA PSA ---
@@ -420,6 +432,7 @@ function renderAlbum() {
                     <option value="price-asc">Precio (Menor a Mayor)</option>
                     <option value="grade-desc">Nota (10 a 1)</option>
                     <option value="grade-asc">Nota (1 a 10)</option>
+                    <option value="roi">💸 Más rentable vender</option>
                 </select>
             `;
             albumGrid.parentNode.insertBefore(filtersDiv, albumGrid);
@@ -460,11 +473,14 @@ function renderAlbum() {
 
         filteredPSA.sort((a, b) => {
             const getVal = (s) => s.basePrice * (s.grade === 10 ? 10 : s.grade === 9 ? 3 : s.grade === 8 ? 1.5 : 1);
+            // ROI = cuánto vale la carta PSA vs su precio base (ganancia multiplicada)
+            const getRoi = (s) => getVal(s) - s.basePrice;
             if (orderType === 'price-desc') return getVal(b) - getVal(a);
-            if (orderType === 'price-asc') return getVal(a) - getVal(b);
+            if (orderType === 'price-asc')  return getVal(a) - getVal(b);
             if (orderType === 'grade-desc') return b.grade - a.grade;
-            if (orderType === 'grade-asc') return a.grade - b.grade;
-            return 0; 
+            if (orderType === 'grade-asc')  return a.grade - b.grade;
+            if (orderType === 'roi')        return getRoi(b) - getRoi(a);
+            return 0;
         });
 
         filteredPSA.forEach((slab) => {
@@ -473,7 +489,18 @@ function renderAlbum() {
             albumGrid.appendChild(createPSASlot(slab.cardDetails, slab, originalIndex));
         });
 
-        collectionProgress.innerText = `Total Graded: ${ownedCount}`;
+        // Valor total cámara PSA
+        const psaTotalValue = filteredPSA.reduce((sum, slab) => {
+            const multi = slab.grade === 10 ? 10 : slab.grade === 9 ? 3 : slab.grade === 8 ? 1.5 : slab.grade === 7 ? 1 : 0.5;
+            return sum + slab.basePrice * multi;
+        }, 0);
+
+        collectionProgress.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span>🏆 ${ownedCount} cartas gradeadas</span>
+                <span style="color:var(--gold);font-weight:bold;">💰 $${psaTotalValue.toFixed(2)}</span>
+            </div>
+        `;
     }
 }
 
@@ -526,19 +553,56 @@ function createMissingSlot(card) {
 function createNormalSlot(card, item) {
     const slot = document.createElement('div');
     slot.className = 'album-card-slot owned';
+
+    const dupes = item.quantity - 1; // copias extra vendibles
+
     slot.innerHTML = `
-        <div class="album-card-img" style="background-image: url('${card.images.small}')">
+        <div class="album-card-img" style="background-image: url('${card.images.small}'); position:relative;">
             <div class="card-count">x${item.quantity}</div>
         </div>
-        <div class="album-card-info" style="text-align: center; padding: 5px;">
-            <p style="font-size: 0.7rem; margin: 0; color: white;">${card.name}</p>
-            <p style="font-size: 0.8rem; margin: 2px 0; color: var(--success); font-weight: bold;">
+        <div class="album-card-info" style="text-align:center;padding:5px;">
+            <p style="font-size:0.7rem;margin:0;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${card.name}</p>
+            <p style="font-size:0.8rem;margin:2px 0;color:var(--success);font-weight:bold;">
                 $${item.lastPrice.toFixed(2)}
             </p>
+            ${dupes >= 1 ? `
+            <button class="sell-dupes-btn"
+                data-card-id="${card.id}"
+                data-price="${item.lastPrice}"
+                data-dupes="${dupes}"
+                style="
+                    margin-top:4px;width:100%;padding:3px 0;
+                    background:#c0392b;color:white;
+                    border:none;border-radius:4px;
+                    font-size:0.65rem;font-weight:bold;
+                    cursor:pointer;
+                ">Vender x${dupes} ($${(item.lastPrice * dupes).toFixed(2)})</button>
+            ` : ''}
         </div>
     `;
-    // Al hacer click, abre tu zoom original (el que tiene el lápiz y el refresh)
-    slot.onclick = () => openZoom(card, item.lastPrice, true);
+
+    // Click en la carta abre zoom (pero no si le dan al botón de vender)
+    slot.onclick = (e) => {
+        if (e.target.classList.contains('sell-dupes-btn')) return;
+        openZoom(card, item.lastPrice, true);
+    };
+
+    // Evento del botón vender duplicadas
+    const sellBtn = slot.querySelector('.sell-dupes-btn');
+    if (sellBtn) {
+        sellBtn.onclick = (e) => {
+            e.stopPropagation();
+            const dupeCount = parseInt(sellBtn.dataset.dupes);
+            const price     = parseFloat(sellBtn.dataset.price);
+            const total     = (price * dupeCount).toFixed(2);
+            if (!confirm(`¿Vender ${dupeCount} copia${dupeCount > 1 ? 's' : ''} extra de "${card.name}" por $${total}?`)) return;
+            if (sellCard(card.id, price, dupeCount)) {
+                refreshUI();
+                renderAlbum();
+            }
+        };
+    }
+
     return slot;
 }
 
@@ -602,51 +666,116 @@ async function renderTopValuableCards() {
 
 // --- ECONOMÍA Y APERTURA ---
 
-openBtn.addEventListener('click', () => {
+// Función central de apertura, recibe cuántos sobres abrir
+function doOpenPacks(cantidad) {
     if (!currentSetData) return;
-
-    // Obtenemos las cartas disponibles
     const cardsArray = Array.isArray(currentSetData) ? currentSetData : (currentSetData.data || []);
     if (cardsArray.length === 0) return;
 
     const data = getInventoryData();
-    
-    // Usamos el precio dinámico calculado en initSet
-    const PRECIO_SOBRE = currentPackPrice; 
+    const totalCost = currentPackPrice * cantidad;
 
-    if (data.wallet < PRECIO_SOBRE) {
-        alert(`¡No tienes suficiente saldo! Necesitas $${PRECIO_SOBRE.toFixed(2)} para este sobre.`);
+    if (data.wallet < totalCost) {
+        alert(`¡Saldo insuficiente! Necesitas $${totalCost.toFixed(2)} para ${cantidad} sobre${cantidad > 1 ? 's' : ''}.`);
         return;
     }
 
-    // --- BLOQUEO DE SEGURIDAD ---
-    openBtn.disabled = true; 
-    openBtn.innerText = "Abriendo sobre..."; 
-    // ----------------------------
+    // Bloquear controles
+    openBtn.disabled = true;
+    openBtn.innerText = cantidad === 1 ? "Abriendo..." : `Abriendo ${cantidad}...`;
+    const multiBtns = document.querySelectorAll('.multi-open-btn');
+    multiBtns.forEach(b => b.disabled = true);
 
-    updateWallet(-PRECIO_SOBRE); 
+    updateWallet(-totalCost);
     refreshUI();
-    
-    currentPackProfit = 0; 
+
+    currentPackProfit = 0;
     const profitDisplay = document.getElementById('current-profit');
     if (profitDisplay) profitDisplay.innerText = "0.00";
 
-    // --- CAMBIO CLAVE AQUÍ ---
-    // Obtenemos el ID del set actual desde el selector
-    const setId = document.getElementById('set-selector').value; 
-    
-    // Pasamos el ID a generatePack para que el filtro sea estricto
-    const newPack = generatePack(cardsArray, setId);
-    // --------------------------
-    
+    const setId = document.getElementById('set-selector').value;
     albumScreen.style.display = 'none';
     packContainer.style.display = 'flex';
 
-    renderPack(newPack);
+    if (cantidad === 1) {
+        // Apertura normal con animación carta a carta
+        const newPack = generatePack(cardsArray, setId);
+        renderPack(newPack);
+    } else {
+        // Apertura múltiple: abre todos en silencio, muestra resumen
+        let totalProfit = 0;
+        const resumen = { total: 0, hits: [], porRareza: {} };
 
-    // Arrancar auto-reveal si estaba activo
-    // (scheduleNextAutoFlip se llama solo desde renderPack al terminar de repartir)
-});
+        for (let i = 0; i < cantidad; i++) {
+            const pack = generatePack(cardsArray, setId);
+            pack.forEach(card => {
+                const price = getBestPrice(card);
+                totalProfit += price;
+                addCardToInventory(card.id, price);
+
+                // Clasificar hits notables (>= $5)
+                if (price >= 5) {
+                    resumen.hits.push({ name: card.name, price, rarity: card.rarity || '' });
+                }
+                // Contar por rareza
+                const r = (card.rarity || 'Unknown');
+                resumen.porRareza[r] = (resumen.porRareza[r] || 0) + 1;
+            });
+        }
+        resumen.total = totalProfit;
+
+        // Guardar en historial
+        packHistory.unshift({
+            cantidad,
+            set: setId,
+            cost: totalCost,
+            profit: totalProfit,
+            net: totalProfit - totalCost,
+            date: new Date().toLocaleTimeString()
+        });
+        if (packHistory.length > 20) packHistory.pop();
+
+        refreshUI();
+        renderMultiPackSummary(resumen, cantidad, totalCost);
+
+        // Desbloquear botones
+        openBtn.disabled = false;
+        updateOpenButton();
+        multiBtns.forEach(b => b.disabled = false);
+    }
+}
+
+openBtn.addEventListener('click', () => doOpenPacks(1));
+
+// Inyectar botones x5 y x10 junto al botón principal (una sola vez)
+(function injectMultiButtons() {
+    const btn5 = document.createElement('button');
+    btn5.className = 'multi-open-btn';
+    btn5.id = 'open-5-btn';
+    btn5.innerText = 'Abrir x5';
+    btn5.disabled = true;
+    btn5.style.cssText = 'background:#1a5276; color:white; font-weight:bold;';
+    btn5.addEventListener('click', () => doOpenPacks(5));
+
+    const btn10 = document.createElement('button');
+    btn10.className = 'multi-open-btn';
+    btn10.id = 'open-10-btn';
+    btn10.innerText = 'Abrir x10';
+    btn10.disabled = true;
+    btn10.style.cssText = 'background:#1a3a4a; color:white; font-weight:bold;';
+    btn10.addEventListener('click', () => doOpenPacks(10));
+
+    const btnHistory = document.createElement('button');
+    btnHistory.id = 'history-btn';
+    btnHistory.innerText = '📜';
+    btnHistory.title = 'Historial de sobres';
+    btnHistory.style.cssText = 'background:#333; color:white; font-weight:bold; padding:10px 12px;';
+    btnHistory.addEventListener('click', showPackHistory);
+
+    openBtn.insertAdjacentElement('afterend', btn5);
+    btn5.insertAdjacentElement('afterend', btn10);
+    btn10.insertAdjacentElement('afterend', btnHistory);
+})();
 
 function editPriceManually(cardId, modalPriceTag, sellBtn) {
     const val = prompt("Nuevo precio ($):");
@@ -726,6 +855,178 @@ async function loadSetsIntoSelector() {
 }
 
 
+
+
+// ── Resumen apertura múltiple ────────────────────────────────
+function renderMultiPackSummary(resumen, cantidad, totalCost) {
+    const net = resumen.total - totalCost;
+    const netColor = net >= 0 ? '#4caf50' : '#ff5252';
+    const netSign  = net >= 0 ? '+' : '';
+
+    // Top hits ordenados por precio
+    const topHits = resumen.hits
+        .sort((a, b) => b.price - a.price)
+        .slice(0, 8);
+
+    const hitsHTML = topHits.length
+        ? topHits.map(h => `
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #222;">
+                <span style="color:#ddd;font-size:0.8rem;">${h.name}</span>
+                <span style="color:#4caf50;font-weight:bold;font-size:0.8rem;">$${h.price.toFixed(2)}</span>
+            </div>`).join('')
+        : '<div style="color:#666;font-size:0.8rem;">Sin hits destacados esta vez.</div>';
+
+    packContainer.innerHTML = `
+        <div style="
+            max-width:420px; width:90%; margin:auto;
+            background:#1a1a1a; border:1px solid #333; border-radius:12px;
+            padding:24px; display:flex; flex-direction:column; gap:14px;
+        ">
+            <div style="text-align:center;">
+                <div style="font-size:1.5rem;font-weight:bold;color:white;">
+                    ${cantidad} Sobres Abiertos
+                </div>
+                <div style="font-size:0.8rem;color:#aaa;margin-top:4px;">
+                    ${cantidad * 11} cartas añadidas al álbum
+                </div>
+            </div>
+
+            <!-- Resumen económico -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center;">
+                <div style="background:#111;border-radius:8px;padding:10px;">
+                    <div style="color:#aaa;font-size:0.65rem;text-transform:uppercase;">Coste</div>
+                    <div style="color:#ff5252;font-weight:bold;font-size:1.1rem;">-$${totalCost.toFixed(2)}</div>
+                </div>
+                <div style="background:#111;border-radius:8px;padding:10px;">
+                    <div style="color:#aaa;font-size:0.65rem;text-transform:uppercase;">Valor</div>
+                    <div style="color:#4caf50;font-weight:bold;font-size:1.1rem;">$${resumen.total.toFixed(2)}</div>
+                </div>
+                <div style="background:#111;border:1px solid ${netColor}44;border-radius:8px;padding:10px;">
+                    <div style="color:#aaa;font-size:0.65rem;text-transform:uppercase;">Neto</div>
+                    <div style="color:${netColor};font-weight:bold;font-size:1.1rem;">${netSign}$${net.toFixed(2)}</div>
+                </div>
+            </div>
+
+            <!-- Top hits -->
+            <div>
+                <div style="color:#ffcb05;font-size:0.75rem;font-weight:bold;text-transform:uppercase;margin-bottom:8px;">
+                    ⭐ Mejores cartas obtenidas
+                </div>
+                <div style="max-height:160px;overflow-y:auto;">${hitsHTML}</div>
+            </div>
+
+            <!-- Botón continuar -->
+            <button id="multi-continue-btn" style="
+                width:100%;padding:12px;
+                background:var(--gold);color:#000;
+                border:none;border-radius:8px;
+                font-weight:bold;font-size:1rem;cursor:pointer;
+            ">Continuar</button>
+        </div>
+    `;
+
+    // Event listener del botón continuar (no puede ir en el template literal)
+    const continueBtn = document.getElementById('multi-continue-btn');
+    if (continueBtn) {
+        continueBtn.onclick = () => {
+            packContainer.innerHTML = '';
+            packContainer.style.display = 'flex';
+            updateOpenButton();
+            const multiBtns = document.querySelectorAll('.multi-open-btn');
+            multiBtns.forEach(b => b.disabled = false);
+        };
+    }
+
+    // Guardar en historial
+    packHistory.unshift({
+        cantidad,
+        cost: totalCost,
+        profit: resumen.total,
+        net,
+        hits: topHits.length,
+        date: new Date().toLocaleTimeString()
+    });
+    if (packHistory.length > 20) packHistory.pop();
+}
+
+// ── Historial de sobres ──────────────────────────────────────
+function showPackHistory() {
+    if (packHistory.length === 0) {
+        alert('Aún no has abierto ningún sobre en esta sesión.');
+        return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+        position:fixed;inset:0;z-index:3000;
+        background:rgba(0,0,0,0.95);
+        display:flex;align-items:center;justify-content:center;
+        padding:20px;box-sizing:border-box;
+    `;
+
+    const totalGastado = packHistory.reduce((s, h) => s + h.cost, 0);
+    const totalGanado  = packHistory.reduce((s, h) => s + h.profit, 0);
+    const netTotal     = totalGanado - totalGastado;
+    const netColor     = netTotal >= 0 ? '#4caf50' : '#ff5252';
+
+    const rowsHTML = packHistory.map((h, i) => {
+        const nc = h.net >= 0 ? '#4caf50' : '#ff5252';
+        const ns = h.net >= 0 ? '+' : '';
+        return `
+            <tr style="border-bottom:1px solid #222;">
+                <td style="padding:6px 8px;color:#aaa;font-size:0.75rem;">${h.date}</td>
+                <td style="padding:6px 8px;text-align:center;color:white;font-size:0.75rem;">x${h.cantidad}</td>
+                <td style="padding:6px 8px;text-align:right;color:#ff5252;font-size:0.75rem;">-$${h.cost.toFixed(2)}</td>
+                <td style="padding:6px 8px;text-align:right;color:#4caf50;font-size:0.75rem;">$${h.profit.toFixed(2)}</td>
+                <td style="padding:6px 8px;text-align:right;color:${nc};font-weight:bold;font-size:0.75rem;">${ns}$${h.net.toFixed(2)}</td>
+            </tr>`;
+    }).join('');
+
+    overlay.innerHTML = `
+        <div style="max-width:500px;width:100%;background:#1a1a1a;border-radius:12px;border:1px solid #333;overflow:hidden;">
+            <div style="padding:16px 20px;background:#252525;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-weight:bold;color:white;">📜 Historial de Sobres</span>
+                <button id="close-history" style="background:none;border:none;color:#aaa;font-size:1.3rem;cursor:pointer;">✕</button>
+            </div>
+
+            <!-- Resumen sesión -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:#333;">
+                <div style="background:#1a1a1a;padding:12px;text-align:center;">
+                    <div style="color:#aaa;font-size:0.6rem;text-transform:uppercase;">Gastado</div>
+                    <div style="color:#ff5252;font-weight:bold;">$${totalGastado.toFixed(2)}</div>
+                </div>
+                <div style="background:#1a1a1a;padding:12px;text-align:center;">
+                    <div style="color:#aaa;font-size:0.6rem;text-transform:uppercase;">Obtenido</div>
+                    <div style="color:#4caf50;font-weight:bold;">$${totalGanado.toFixed(2)}</div>
+                </div>
+                <div style="background:#1a1a1a;padding:12px;text-align:center;">
+                    <div style="color:#aaa;font-size:0.6rem;text-transform:uppercase;">Neto sesión</div>
+                    <div style="color:${netColor};font-weight:bold;">${netTotal >= 0 ? '+' : ''}$${netTotal.toFixed(2)}</div>
+                </div>
+            </div>
+
+            <!-- Tabla -->
+            <div style="max-height:320px;overflow-y:auto;">
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr style="background:#252525;">
+                            <th style="padding:8px;text-align:left;color:#888;font-size:0.7rem;">Hora</th>
+                            <th style="padding:8px;color:#888;font-size:0.7rem;">Sobres</th>
+                            <th style="padding:8px;text-align:right;color:#888;font-size:0.7rem;">Coste</th>
+                            <th style="padding:8px;text-align:right;color:#888;font-size:0.7rem;">Valor</th>
+                            <th style="padding:8px;text-align:right;color:#888;font-size:0.7rem;">Neto</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHTML}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('close-history').onclick = () => overlay.remove();
+}
 
 // --- UTILIDADES ---
 
@@ -1034,6 +1335,10 @@ function updateOpenButton() {
         openBtn.disabled = false;
         openBtn.innerText = `Abrir Sobre ($${currentPackPrice.toFixed(2)})`;
     }
+    const btn5  = document.getElementById('open-5-btn');
+    const btn10 = document.getElementById('open-10-btn');
+    if (btn5)  { btn5.disabled  = false; btn5.innerText  = `Abrir x5 ($${(currentPackPrice * 5).toFixed(2)})`; }
+    if (btn10) { btn10.disabled = false; btn10.innerText = `Abrir x10 ($${(currentPackPrice * 10).toFixed(2)})`; }
 }
 
 function openZoom(card, price, canSell) {
