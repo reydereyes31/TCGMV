@@ -13,7 +13,7 @@ import { updateWallet, addCardToInventory, getInventoryData, sellCard, saveInven
 const packContainer = document.getElementById('pack-container');
 const openBtn = document.getElementById('open-button');
 const setSelector = document.getElementById('set-selector');
-const invCountDisplay = document.getElementById('inventory-count');
+
 const balanceDisplay = document.getElementById('balance');
 const modalOverlay = document.getElementById('modal-overlay');
 const zoomedCard = document.getElementById('zoomed-card');
