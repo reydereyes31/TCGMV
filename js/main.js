@@ -680,11 +680,18 @@ function doOpenPacks(cantidad) {
         return;
     }
 
-    // Bloquear controles
+    // Confirmación para x5 y x10 (anti-missclick)
+    if (cantidad > 1) {
+        if (!confirm(`¿Abrir ${cantidad} sobres por $${totalCost.toFixed(2)}?`)) return;
+    }
+
+    // Bloquear TODOS los controles
     openBtn.disabled = true;
     openBtn.innerText = cantidad === 1 ? "Abriendo..." : `Abriendo ${cantidad}...`;
     const multiBtns = document.querySelectorAll('.multi-open-btn');
     multiBtns.forEach(b => b.disabled = true);
+    setSelector.disabled = true;
+    orderSelector.disabled = true;
 
     updateWallet(-totalCost);
     refreshUI();
@@ -699,8 +706,25 @@ function doOpenPacks(cantidad) {
 
     if (cantidad === 1) {
         // Apertura normal con animación carta a carta
+        // Los selectores se desbloquean en renderPack cuando se voltea la última carta
         const newPack = generatePack(cardsArray, setId);
         renderPack(newPack);
+
+        // Guardar en historial — el profit real se actualiza en flipCard,
+        // así que guardamos una entrada provisional que actualizamos al terminar
+        const histEntry = {
+            cantidad: 1,
+            setId,
+            cost: totalCost,
+            profit: 0,      // se rellena al terminar
+            net: 0,
+            date: new Date().toLocaleTimeString()
+        };
+        packHistory.unshift(histEntry);
+        if (packHistory.length > 20) packHistory.pop();
+        // Guardar referencia para actualizar profit cuando acabe el sobre
+        window._currentHistEntry = histEntry;
+
     } else {
         // Apertura múltiple: abre todos en silencio, muestra resumen
         let totalProfit = 0;
@@ -712,22 +736,18 @@ function doOpenPacks(cantidad) {
                 const price = getBestPrice(card);
                 totalProfit += price;
                 addCardToInventory(card.id, price);
-
-                // Clasificar hits notables (>= $5)
                 if (price >= 5) {
                     resumen.hits.push({ name: card.name, price, rarity: card.rarity || '' });
                 }
-                // Contar por rareza
                 const r = (card.rarity || 'Unknown');
                 resumen.porRareza[r] = (resumen.porRareza[r] || 0) + 1;
             });
         }
         resumen.total = totalProfit;
 
-        // Guardar en historial
         packHistory.unshift({
             cantidad,
-            set: setId,
+            setId,
             cost: totalCost,
             profit: totalProfit,
             net: totalProfit - totalCost,
@@ -738,10 +758,12 @@ function doOpenPacks(cantidad) {
         refreshUI();
         renderMultiPackSummary(resumen, cantidad, totalCost);
 
-        // Desbloquear botones
+        // Desbloquear todo (los selectores también)
         openBtn.disabled = false;
         updateOpenButton();
         multiBtns.forEach(b => b.disabled = false);
+        setSelector.disabled = false;
+        orderSelector.disabled = false;
     }
 }
 
@@ -934,6 +956,8 @@ function renderMultiPackSummary(resumen, cantidad, totalCost) {
             updateOpenButton();
             const multiBtns = document.querySelectorAll('.multi-open-btn');
             multiBtns.forEach(b => b.disabled = false);
+            setSelector.disabled = false;
+            orderSelector.disabled = false;
         };
     }
 
@@ -1142,6 +1166,15 @@ function renderPack(pack) {
         if (cartasReveladas === pack.length) {
             openBtn.disabled = false;
             updateOpenButton();
+            // Desbloquear selectores — ya no se puede bugear cambiando set a mitad
+            setSelector.disabled = false;
+            orderSelector.disabled = false;
+            // Actualizar el profit real en el historial del sobre x1
+            if (window._currentHistEntry) {
+                window._currentHistEntry.profit = currentPackProfit;
+                window._currentHistEntry.net    = currentPackProfit - window._currentHistEntry.cost;
+                window._currentHistEntry = null;
+            }
         }
 
         currentPackProfit += realPrice;
