@@ -192,46 +192,56 @@ async function initSet() {
     const setId = setSelector.value;
     if (!setId) return;
 
+    // Bloqueamos AMBOS controles mientras carga para evitar condición de carrera
     openBtn.disabled = true;
     openBtn.innerHTML = `Cargando...`;
-    
+    setSelector.disabled = true;
+    orderSelector.disabled = true;
+
     try {
-        const response = await fetchSetData(setId); 
-        currentSetData = response.data || response; 
+        const response = await fetchSetData(setId);
 
-        // 1. Obtenemos todos los sets
+        // Verificación anti-carrera: si el selector ya tiene otro valor
+        // (el usuario consiguió cambiarlo antes de que bloqueáramos), abortamos
+        // esta carga y dejamos que el nuevo 'change' lo gestione.
+        if (setSelector.value !== setId) {
+            console.warn("initSet: set cambiado durante la carga, abortando.");
+            return;
+        }
+
+        currentSetData = response.data || response;
+
+        // Obtenemos todos los sets para calcular precio
         const allSetsRaw = await fetchAllSets();
-        // 2. Aseguramos que manejamos el array de sets (algunas APIs lo envuelven en .data)
         const allSets = Array.isArray(allSetsRaw) ? allSetsRaw : (allSetsRaw.data || []);
-        
-        // 3. Buscamos el set específico para ver su serie y nombre
         const setDetails = allSets.find(s => s.id === setId);
-        
-        console.log("Detalles del set encontrados:", setDetails); // Esto te dirá en la consola si lo encuentra
 
-        // 4. Calculamos el precio
         if (setDetails) {
             currentPackPrice = getPackPrice(setDetails);
         } else {
-            // Si no lo encuentra en la lista global, intentamos usar los datos del set actual
-            // por si la respuesta de fetchSetData ya trae la serie
             const backupDetails = response.data || response;
             currentPackPrice = getPackPrice(backupDetails);
         }
-        
-        // 5. Actualizamos la interfaz
+
         openBtn.disabled = false;
         openBtn.innerText = `Abrir Sobre ($${currentPackPrice.toFixed(2)})`;
-        
+
         const costDisplay = document.getElementById('current-pack-cost');
         if (costDisplay) costDisplay.innerText = `$${currentPackPrice.toFixed(2)}`;
 
         if (albumScreen.style.display === 'block') renderAlbum();
         refreshUI();
+
     } catch (error) {
         console.error("Error en initSet:", error);
-        openBtn.innerText = "Error";
+        openBtn.innerText = "Error al cargar — reintenta";
+        openBtn.disabled = false;
+    } finally {
+        // Siempre desbloqueamos los selectores al terminar (bien o mal)
+        setSelector.disabled = false;
+        orderSelector.disabled = false;
     }
+
     updateOpenButton();
     refreshUI();
 }
@@ -1438,4 +1448,3 @@ document.addEventListener('keydown', (e) => {
     // Insertamos el botón justo después del botón de abrir sobre
     openBtn.insertAdjacentElement('afterend', btn);
 })();
-
