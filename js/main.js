@@ -1731,8 +1731,17 @@ function updateOpenButton() {
 
 function openZoom(card, price, canSell) {
 
+    // Limpiar partículas PSA si quedaron de un zoom anterior
+    removePSAParticles();
+    document.querySelector('.modal-content')?.classList.remove('psa-10-zoom-effect');
+
+    // Limpiar elementos del zoom anterior
     const psaActions = document.getElementById('psa-actions');
     if (psaActions) psaActions.remove();
+
+    // Restaurar scroll normal del overlay (PSA lo cambia)
+    modalOverlay.style.overflowY = '';
+    modalOverlay.style.alignItems = 'center';
 
     zoomedCard.style.backgroundImage = `url('${card.images.large}')`;
     modalOverlay.style.display = 'flex';
@@ -1873,22 +1882,21 @@ window.openZoomPSA = function(card, slab, index) {
 
     zoomedCard.style.backgroundImage = `url('${card.images.large}')`;
     modalOverlay.style.display = 'flex';
+
+    // Activar scroll para PSA (la info es más larga que la pantalla en móvil)
+    modalOverlay.style.overflowY = 'auto';
+    modalOverlay.style.alignItems = 'flex-start';
+    modalOverlay.style.paddingTop = '30px';
+    modalOverlay.style.paddingBottom = '60px';
+
     const modalContent = document.querySelector('.modal-content');
 
-    // --- LIMPIEZA DE BOTONES DE VENTA NORMAL ---
-    const sellBtn = document.getElementById('sell-button');
-    if (sellBtn) sellBtn.style.display = 'none'; // Ocultamos el botón azul
-
-    const toolsBtn = document.getElementById('modal-tools');
-    if (toolsBtn) toolsBtn.style.display = 'none'; // Ocultamos herramientas (lápiz/refresh)
-    
-    const priceTag = document.getElementById('modal-price-tag');
-    if (priceTag) priceTag.style.display = 'none';
-    // 1. LIMPIEZA TOTAL Y QUITAR PARTÍCULAS PREVIAS
+    // Limpieza total
     modalContent.classList.remove('psa-10-zoom-effect');
-    removePSAParticles(); // Limpiamos las partículas del fondo si las hubiera
+    removePSAParticles();
 
-    const elementsToRemove = ['modal-price-tag', 'modal-tools', 'psa-actions', 'grade-psa-btn', 'market-link-btn', 'regrade-tools-container'];
+    const elementsToRemove = ['modal-price-tag', 'modal-tools', 'psa-actions', 'normal-actions',
+        'grade-psa-btn', 'sell-button', 'market-link-btn', 'regrade-tools-container'];
     elementsToRemove.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.remove();
@@ -1957,35 +1965,57 @@ window.openZoomPSA = function(card, slab, index) {
 
 // --- SISTEMA DE PARTÍCULAS DORADAS PSA 10 ---
 function createPSAParticles() {
-    const modalOverlay = document.getElementById('modal-overlay');
-    
-    // Creamos un contenedor para las partículas (para borrarlas fácil)
+    const overlay = document.getElementById('modal-overlay');
+
     const particleContainer = document.createElement('div');
     particleContainer.id = 'psa-particle-container';
-    particleContainer.style.cssText = "position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;";
-    modalOverlay.appendChild(particleContainer);
+    particleContainer.style.cssText = `
+        position: fixed; top: 0; left: 0;
+        width: 100%; height: 100%;
+        pointer-events: none; z-index: 2001;
+        overflow: hidden;
+    `;
+    overlay.appendChild(particleContainer);
 
-    const NUM_PARTICLES = 50;
+    const NUM_PARTICLES = 80;
 
     for (let i = 0; i < NUM_PARTICLES; i++) {
         const particle = document.createElement('div');
-        particle.className = 'psa-particle';
-        
-        // Posición inicial aleatoria
-        particle.style.left = Math.random() * 100 + '%';
-        particle.style.top = Math.random() * 100 + '%';
-        
-        // Tamaño aleatorio
-        const size = Math.random() * 4 + 1;
-        particle.style.width = size + 'px';
-        particle.style.height = size + 'px';
-        
-        // Opacidad aleatoria
-        particle.style.opacity = Math.random();
-        
-        // Animación aleatoria (velocidad y retraso)
-        particle.style.animation = `psa-particle-float ${Math.random() * 10 + 5}s linear infinite`;
-        particle.style.animationDelay = Math.random() * 5 + 's';
+
+        // Tipos variados: punto, diamante, estrella
+        const tipo = Math.random();
+        if (tipo < 0.6) {
+            // Punto dorado (mayoría)
+            particle.className = 'psa-particle';
+            const size = Math.random() * 5 + 2; // más grande: 2-7px
+            particle.style.width  = size + 'px';
+            particle.style.height = size + 'px';
+            particle.style.borderRadius = '50%';
+        } else if (tipo < 0.85) {
+            // Destello alargado (rayo de luz)
+            particle.className = 'psa-particle';
+            particle.style.width  = (Math.random() * 2 + 1) + 'px';
+            particle.style.height = (Math.random() * 12 + 6) + 'px';
+            particle.style.borderRadius = '50%';
+            particle.style.transform = `rotate(${Math.random() * 360}deg)`;
+        } else {
+            // Brillo grande difuso
+            particle.className = 'psa-particle';
+            const size = Math.random() * 8 + 4;
+            particle.style.width  = size + 'px';
+            particle.style.height = size + 'px';
+            particle.style.borderRadius = '50%';
+            particle.style.filter = 'blur(2px)';
+        }
+
+        particle.style.left   = Math.random() * 100 + '%';
+        particle.style.top    = Math.random() * 110 + '%'; // algunas empiezan fuera de pantalla
+        particle.style.opacity = (Math.random() * 0.6 + 0.2).toString(); // 0.2 - 0.8
+
+        // Velocidad variada: partículas lentas y rápidas
+        const speed = Math.random() * 8 + 4; // 4s - 12s
+        particle.style.animation      = `psa-particle-float ${speed}s ease-in-out infinite`;
+        particle.style.animationDelay = (Math.random() * 6) + 's';
 
         particleContainer.appendChild(particle);
     }
@@ -2024,7 +2054,18 @@ function ejecutarVenta(card, precio) {
 
 
 // Eventos Finales
-modalOverlay.addEventListener('click', (e) => { if(e.target === modalOverlay) modalOverlay.style.display = 'none'; });
+modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) {
+        modalOverlay.style.display = 'none';
+        // Limpiar partículas y restaurar overlay a estado neutro
+        removePSAParticles();
+        document.querySelector('.modal-content')?.classList.remove('psa-10-zoom-effect');
+        modalOverlay.style.overflowY = '';
+        modalOverlay.style.alignItems = '';
+        modalOverlay.style.paddingTop = '';
+        modalOverlay.style.paddingBottom = '';
+    }
+});
 modalOverlay.addEventListener('mousemove', (e) => {
     if (modalOverlay.style.display !== 'flex') return;
     const xRotation = ((e.clientY / window.innerHeight) - 0.5) * -30;
