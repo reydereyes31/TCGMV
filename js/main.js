@@ -268,11 +268,14 @@ function renderAlbum() {
     // Si estamos en normal, necesitamos el set. Si estamos en PSA, ya no.
     if (activeAlbum === 'normal' && !currentSetData) return;
 
-    const psaFilters = document.getElementById('psa-filters');
+    const psaFilters    = document.getElementById('psa-filters');
+    const normalFilters = document.getElementById('normal-filters');
     if (activeAlbum === 'normal') {
-        if (psaFilters) psaFilters.style.display = 'none';
+        if (psaFilters)    psaFilters.style.display    = 'none';
+        if (normalFilters) normalFilters.style.display = 'flex';
     } else {
-        if (psaFilters) psaFilters.style.display = 'flex';
+        if (psaFilters)    psaFilters.style.display    = 'flex';
+        if (normalFilters) normalFilters.style.display = 'none';
     }
 
     const data = getInventoryData();
@@ -281,64 +284,122 @@ function renderAlbum() {
     let ownedCount = 0;
 
     if (activeAlbum === 'normal') {
-        const allCardsInSet = Array.isArray(currentSetData) ? currentSetData : (currentSetData.data || []);
-        
+
+        // ── Inyectar barra de filtros del álbum normal (una sola vez) ──────
+        if (!document.getElementById('normal-filters')) {
+            const filtersDiv = document.createElement('div');
+            filtersDiv.id = 'normal-filters';
+            filtersDiv.style.cssText = `
+                display: flex; gap: 8px; flex-wrap: wrap;
+                margin-bottom: 18px; padding: 10px 12px;
+                background: #1e1e1e; border-radius: 8px;
+                border: 1px solid #333; width: 100%; box-sizing: border-box;
+            `;
+            filtersDiv.innerHTML = `
+                <select id="nf-sort" style="background:#111;color:white;border:1px solid #444;padding:6px 8px;border-radius:5px;flex:1;min-width:130px;cursor:pointer;">
+                    <option value="number">📋 Nº de carta</option>
+                    <option value="price-desc">💰 Precio: Mayor a Menor</option>
+                    <option value="price-asc">💰 Precio: Menor a Mayor</option>
+                    <option value="rarity">✨ Rareza</option>
+                    <option value="name">🔤 Nombre A-Z</option>
+                    <option value="quantity">📦 Cantidad</option>
+                </select>
+                <select id="nf-show" style="background:#111;color:white;border:1px solid #444;padding:6px 8px;border-radius:5px;flex:1;min-width:130px;cursor:pointer;">
+                    <option value="all">👁 Mostrar todas</option>
+                    <option value="owned">✅ Solo obtenidas</option>
+                    <option value="missing">❌ Solo pendientes</option>
+                    <option value="dupes">🔁 Duplicadas (x2+)</option>
+                </select>
+            `;
+            albumGrid.parentNode.insertBefore(filtersDiv, albumGrid);
+            document.getElementById('nf-sort').onchange  = () => renderAlbum();
+            document.getElementById('nf-show').onchange  = () => renderAlbum();
+        }
+
+        const sortMode = document.getElementById('nf-sort')?.value || 'number';
+        const showMode = document.getElementById('nf-show')?.value || 'all';
+
+        // Orden de rareza para la opción "rareza"
+        const RARITY_ORDER = [
+            'common','uncommon','rare','rare holo','rare holo ex',
+            'rare holo gx','rare holo v','rare holo vmax','rare holo vstar',
+            'rare ultra','rare secret','rare rainbow','rare shiny',
+            'illustration rare','special illustration rare',
+            'hyper rare','trainer gallery rare holo','shiny rare',
+            'double rare','ace spec rare'
+        ];
+        const rarityRank = r => {
+            const idx = RARITY_ORDER.indexOf((r || '').toLowerCase());
+            return idx === -1 ? 99 : idx;
+        };
+
+        let allCardsInSet = Array.isArray(currentSetData)
+            ? [...currentSetData]
+            : [...(currentSetData.data || [])];
+
+        // ── Ordenar ──────────────────────────────────────────────────────
+        allCardsInSet.sort((a, b) => {
+            const aItem = data.owned_cards[a.id];
+            const bItem = data.owned_cards[b.id];
+            switch (sortMode) {
+                case 'price-desc':
+                    return (bItem?.lastPrice || 0) - (aItem?.lastPrice || 0);
+                case 'price-asc':
+                    return (aItem?.lastPrice || 0) - (bItem?.lastPrice || 0);
+                case 'rarity':
+                    return rarityRank(b.rarity) - rarityRank(a.rarity);
+                case 'name':
+                    return a.name.localeCompare(b.name);
+                case 'quantity':
+                    return (bItem?.quantity || 0) - (aItem?.quantity || 0);
+                default: // number
+                    return (parseInt(a.number) || 0) - (parseInt(b.number) || 0);
+            }
+        });
+
+        // ── Filtrar y renderizar ──────────────────────────────────────────
         allCardsInSet.forEach(card => {
             if (!card.name.toLowerCase().includes(searchTerm)) return;
-            
-            // --- LÓGICA PARA EL BUSCADOR GLOBAL ---
 
-            // Cuando recorras las cartas en tu buscador:
-            const item = data.owned_cards[card.id];
-            // ESTO ES LO QUE FALTA EN LA BÚSQUEDA GLOBAL:
-            const hasInPSA = data.psa_cards && data.psa_cards.some(slab => slab.cardId === card.id);
+            const item     = data.owned_cards[card.id];
+            const hasInPSA = data.psa_cards && data.psa_cards.some(s => s.cardId === card.id);
+            const isOwned  = item && item.quantity > 0;
+            const isDupe   = item && item.quantity >= 2;
 
-            if (item && item.quantity > 0) {
-                // Si la tienes normal
+            // Aplicar filtro de visibilidad
+            if (showMode === 'owned'   && !isOwned && !hasInPSA) return;
+            if (showMode === 'missing' && (isOwned || hasInPSA))  return;
+            if (showMode === 'dupes'   && !isDupe)                 return;
+
+            if (isOwned) {
+                ownedCount++;
                 albumGrid.appendChild(createNormalSlot(card, item));
             } else if (hasInPSA) {
-                // CASO: LA TIENES EN PSA
-                ownedCount++; 
+                ownedCount++;
                 const slot = createMissingSlot(card);
-                
-                // --- AJUSTES PARA PERTENENCIA (COLOR TOTAL) ---
                 slot.style.opacity = "1";
                 slot.style.position = "relative";
-                slot.style.border = "2px solid #ffcb05"; // Marco dorado para que resalte
-                slot.style.boxShadow = "0 0 10px rgba(255, 203, 5, 0.3)";
-                
-                // Localizamos la imagen dentro del slot y le quitamos el filtro gris
+                slot.style.border = "2px solid #ffcb05";
+                slot.style.boxShadow = "0 0 10px rgba(255,203,5,0.3)";
                 const imgDiv = slot.querySelector('.album-card-img');
-                if (imgDiv) {
-                    imgDiv.style.filter = "none";      // <--- ESTO QUITA EL GRIS
-                    imgDiv.style.brightness = "1";    // <--- ESTO LE DA LUZ TOTAL
-                }
-
-                // Mantenemos la etiqueta dorada para saber que es PSA
+                if (imgDiv) imgDiv.style.filter = "none";
                 const badge = document.createElement('div');
                 badge.innerText = "EN PSA";
                 badge.style.cssText = `
-                    position: absolute;
-                    top: 5px;
-                    right: 5px;
-                    background: #ffcb05;
-                    color: #000;
-                    font-size: 10px;
-                    font-weight: bold;
-                    padding: 2px 6px;
-                    border-radius: 4px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-                    z-index: 10;
-                    border: 1px solid black;
+                    position:absolute; top:5px; right:5px;
+                    background:#ffcb05; color:#000;
+                    font-size:10px; font-weight:bold;
+                    padding:2px 6px; border-radius:4px;
+                    box-shadow:0 2px 4px rgba(0,0,0,0.5);
+                    z-index:10; border:1px solid black;
                 `;
                 slot.appendChild(badge);
-                
                 albumGrid.appendChild(slot);
             } else {
-                // Si no la tienes de ninguna forma
                 albumGrid.appendChild(createMissingSlot(card));
             }
         });
+
         collectionProgress.innerText = `${ownedCount} / ${allCardsInSet.length}`;
     } 
     else {
@@ -1354,45 +1415,195 @@ document.getElementById('btn-view-psa').onclick = () => {
 
 window.handleAuctionPSA = function(index) {
     const data = getInventoryData();
-    // Accedemos a la carta usando el índice que nos llega
     const slab = data.psa_cards[index];
-    
-    if (!slab) {
-        console.error("No se encontró la carta PSA en el índice:", index);
-        return;
+    if (!slab) { console.error("No se encontró la carta PSA:", index); return; }
+
+    // ── Confirmación previa (anti-missclick) ──────────────────────────────
+    if (!confirm(`¿Seguro que quieres subastar el PSA ${slab.grade} de "${slab.cardDetails.name}"?\n\nUna vez iniciada la subasta no hay vuelta atrás.`)) return;
+
+    // ── Calcular precio final ANTES de mostrar la cuenta atrás ────────────
+    let multi = slab.grade === 10 ? 10 : slab.grade === 9 ? 3 : slab.grade === 8 ? 1.5 : slab.grade === 7 ? 1 : (slab.grade / 10 + 0.2);
+    const baseValue = slab.basePrice * multi;
+
+    // Resultado aleatorio con las probabilidades pedidas:
+    //   5%  → x2 (guerra de pujas)
+    //  25%  → entre 0.7 y 0.9  (salió barata)
+    //  70%  → entre 0.9 y 1.2  (precio normal)
+    const roll = Math.random();
+    let finalBid;
+    let outcome; // para el mensaje final
+    if (roll < 0.05) {
+        finalBid = baseValue * (1.8 + Math.random() * 0.4); // ~x2
+        outcome = 'jackpot';
+    } else if (roll < 0.30) {
+        finalBid = baseValue * (0.7 + Math.random() * 0.2);
+        outcome = 'bajo';
+    } else {
+        finalBid = baseValue * (0.9 + Math.random() * 0.3);
+        outcome = 'normal';
     }
 
-    // 1. Calcular el valor de la subasta (el multi que ya tenías)
-    let multi = slab.grade >= 7 ? (slab.grade === 10 ? 10 : slab.grade === 9 ? 3 : 1.5) : (slab.grade / 10 + 0.2);
-    if (slab.grade === 7) multi = 1;
+    // ── Eliminar carta del inventario YA (la subasta es irrevocable) ──────
+    data.psa_cards.splice(index, 1);
+    saveInventoryData(data);
 
-    const baseValue = slab.basePrice * multi;
-    const finalBid = baseValue * (0.9 + Math.random() * 0.3); // Variación de puja entre -10% y +20%
+    // ── Cerrar el modal de zoom y mostrar la pantalla de subasta ─────────
+    modalOverlay.style.display = 'none';
 
-    // 2. Confirmación del usuario
-    if (confirm(`La mejor puja actual por este PSA ${slab.grade} de ${slab.cardDetails.name} es de $${finalBid.toFixed(2)}.\n\n¿Aceptas la oferta?`)) {
-        
-        // 3. ACTUALIZACIÓN DEL INVENTARIO
-        // Sumamos el dinero a la wallet
-        data.wallet += finalBid;
-        
-        // Eliminamos la carta del array psa_cards usando el índice
-        data.psa_cards.splice(index, 1);
-        
-        // 4. GUARDAR CAMBIOS
-        saveInventoryData(data);
-        
-        // 5. REFRESCAR LA INTERFAZ
-        alert(`¡Vendido! Has recibido $${finalBid.toFixed(2)} por tu PSA ${slab.grade}.`);
-        
-        // Cerramos el modal de zoom si estaba abierto
-        modalOverlay.style.display = 'none';
-        
-        // Actualizamos los números en pantalla (dinero, etc)
-        if (typeof refreshUI === 'function') refreshUI(); 
-        
-        // Refrescamos el álbum para que la carta desaparezca de la vista
-        renderAlbum();
+    // Crear overlay de subasta
+    const auctionOverlay = document.createElement('div');
+    auctionOverlay.id = 'auction-overlay';
+    auctionOverlay.style.cssText = `
+        position: fixed; inset: 0; z-index: 3000;
+        background: rgba(0,0,0,0.96);
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 20px; padding: 30px; box-sizing: border-box;
+    `;
+
+    const isGem = slab.grade === 10;
+    const gradeColor = isGem ? '#fcf6ba' : '#fff';
+    const accentColor = isGem ? '#bf953f' : '#d10000';
+
+    auctionOverlay.innerHTML = `
+        <div style="text-align:center; max-width:380px; width:100%;">
+            <div style="font-size:0.75rem; color:#aaa; text-transform:uppercase; letter-spacing:2px; margin-bottom:6px;">
+                Subasta en curso
+            </div>
+            <div style="font-size:1.1rem; color:${gradeColor}; font-weight:bold; margin-bottom:4px;">
+                PSA ${slab.grade} — ${slab.cardDetails.name}
+            </div>
+
+            <!-- Imagen de la carta -->
+            <div style="
+                width:160px; height:224px; margin:16px auto;
+                background-image:url('${slab.cardDetails.images.large}');
+                background-size:cover; background-position:center;
+                border-radius:10px;
+                box-shadow: 0 0 30px ${isGem ? 'rgba(212,175,55,0.6)' : 'rgba(209,0,0,0.4)'};
+                border: 2px solid ${accentColor};
+            "></div>
+
+            <!-- Barra de progreso de la subasta -->
+            <div style="background:#222; border-radius:20px; height:8px; width:100%; margin-bottom:12px; overflow:hidden;">
+                <div id="auction-progress-bar" style="
+                    height:100%; width:100%;
+                    background: linear-gradient(90deg, ${accentColor}, #ffcb05);
+                    border-radius:20px;
+                    transition: width 1s linear;
+                "></div>
+            </div>
+
+            <!-- Cuenta atrás -->
+            <div style="display:flex; align-items:baseline; justify-content:center; gap:8px; margin-bottom:8px;">
+                <span style="font-size:3.5rem; font-weight:bold; color:#fff; line-height:1;" id="auction-countdown">8</span>
+                <span style="color:#aaa; font-size:0.9rem;">segundos</span>
+            </div>
+
+            <!-- Mensajes de pujas en tiempo real -->
+            <div id="auction-bids" style="
+                font-size:0.8rem; color:#aaa; min-height:48px;
+                border: 1px solid #333; border-radius:6px;
+                padding:8px 12px; background:#111;
+                text-align:left; line-height:1.6;
+            ">Esperando pujadores...</div>
+        </div>
+    `;
+
+    document.body.appendChild(auctionOverlay);
+
+    // ── Mensajes falsos de puja para ambientar ────────────────────────────
+    const bidMessages = [
+        `🔔 Trainer_99 ha pujado $${(finalBid * 0.55).toFixed(2)}`,
+        `🔔 CollectorX ha pujado $${(finalBid * 0.68).toFixed(2)}`,
+        `🔔 PokéMaster ha pujado $${(finalBid * 0.79).toFixed(2)}`,
+        `🔔 Trainer_99 ha subido a $${(finalBid * 0.88).toFixed(2)}`,
+        `🔔 NuevoPujador ha entrado: $${(finalBid * 0.94).toFixed(2)}`,
+        outcome === 'jackpot'
+            ? `🔥 ¡GUERRA DE PUJAS! Múltiples pujadores`
+            : `🔔 Puja final: $${finalBid.toFixed(2)}`,
+    ];
+
+    const countdownEl  = document.getElementById('auction-countdown');
+    const bidsEl       = document.getElementById('auction-bids');
+    const progressBar  = document.getElementById('auction-progress-bar');
+    const DURATION     = 8; // segundos totales
+    let secondsLeft    = DURATION;
+
+    // Animar la barra vaciándose
+    requestAnimationFrame(() => {
+        progressBar.style.transition = `width ${DURATION}s linear`;
+        progressBar.style.width = '0%';
+    });
+
+    const interval = setInterval(() => {
+        secondsLeft--;
+        if (countdownEl) countdownEl.innerText = secondsLeft;
+
+        // Mostrar mensaje de puja según el segundo
+        const msgIndex = DURATION - 1 - secondsLeft;
+        if (msgIndex >= 0 && msgIndex < bidMessages.length) {
+            if (bidsEl) bidsEl.innerHTML = bidMessages.slice(0, msgIndex + 1)
+                .map(m => `<div>${m}</div>`).join('');
+            // Scroll al último mensaje
+            if (bidsEl) bidsEl.scrollTop = bidsEl.scrollHeight;
+        }
+
+        if (secondsLeft <= 0) {
+            clearInterval(interval);
+            finishAuction();
+        }
+    }, 1000);
+
+    function finishAuction() {
+        // Cobrar al jugador
+        const freshData = getInventoryData();
+        freshData.wallet += finalBid;
+        saveInventoryData(freshData);
+        refreshUI();
+
+        // Transformar overlay en pantalla de resultado
+        const outcomeColor  = outcome === 'jackpot' ? '#ffcb05' : outcome === 'bajo' ? '#ff7043' : '#4caf50';
+        const outcomeLabel  = outcome === 'jackpot' ? '🔥 ¡GUERRA DE PUJAS!' : outcome === 'bajo' ? '📉 Subasta tranquila' : '🏆 ¡Vendida!';
+        const outcomeDetail = outcome === 'jackpot'
+            ? 'Dos coleccionistas se disputaron tu carta. ¡Precio histórico!'
+            : outcome === 'bajo'
+            ? 'Poca demanda hoy. Se vendió por menos de lo esperado.'
+            : 'Subasta completada con normalidad.';
+
+        auctionOverlay.innerHTML = `
+            <div style="text-align:center; max-width:380px; width:100%;">
+                <div style="font-size:2rem; margin-bottom:10px;">${outcomeLabel}</div>
+                <div style="font-size:0.9rem; color:#aaa; margin-bottom:20px;">${outcomeDetail}</div>
+
+                <div style="
+                    background:#111; border:2px solid ${outcomeColor};
+                    border-radius:12px; padding:20px; margin-bottom:20px;
+                    box-shadow: 0 0 20px ${outcomeColor}44;
+                ">
+                    <div style="font-size:0.7rem; color:#aaa; text-transform:uppercase; letter-spacing:1px;">Precio final</div>
+                    <div style="font-size:3rem; font-weight:bold; color:${outcomeColor}; line-height:1.1;">
+                        $${finalBid.toFixed(2)}
+                    </div>
+                    <div style="font-size:0.8rem; color:#888; margin-top:6px;">
+                        PSA ${slab.grade} · ${slab.cardDetails.name}
+                    </div>
+                </div>
+
+                <button id="auction-close-btn" style="
+                    width:100%; padding:14px;
+                    background:var(--gold); color:#000;
+                    border:none; border-radius:8px;
+                    font-weight:bold; font-size:1rem;
+                    cursor:pointer; text-transform:uppercase;
+                ">Cobrar y continuar</button>
+            </div>
+        `;
+
+        document.getElementById('auction-close-btn').onclick = () => {
+            auctionOverlay.remove();
+            renderAlbum();
+        };
     }
 };
 
