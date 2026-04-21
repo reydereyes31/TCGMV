@@ -1075,3 +1075,17 @@ footer span { color: var(--gold); font-weight: bold; }
         overflow: visible !important;
     }
 }
+
+/* ── AUTO-REVEAL BUTTON ── */
+#auto-reveal-btn:hover {
+    filter: brightness(1.15);
+    transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+    #auto-reveal-btn {
+        grid-column: 1 / -1;
+        font-size: 0.85rem;
+        padding: 10px;
+    }
+}
