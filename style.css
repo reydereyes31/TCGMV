@@ -1190,3 +1190,24 @@ footer span { color: var(--gold); font-weight: bold; }
         max-width: 100% !important;
     }
 }
+/* ═══════════════════════════════════════════
+   MERCADO NEGRO
+   ═══════════════════════════════════════════ */
+#shop-screen {
+    padding: 20px;
+    background: radial-gradient(circle at top, #1a0a2e 0%, #0a0a0a 100%);
+    min-height: 100vh;
+}
+.shop-card-slot:hover {
+    transform: translateY(-3px);
+    border-color: #7c3aed !important;
+    box-shadow: 0 6px 20px rgba(124,58,237,0.2);
+}
+.shop-buy-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+#view-shop-btn:hover { filter: brightness(1.2); box-shadow: 0 0 12px rgba(124,58,237,0.4); }
+@media (max-width: 768px) {
+    #shop-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important; gap: 10px !important; }
+}
+@media (max-width: 480px) {
+    #shop-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px !important; }
+}
