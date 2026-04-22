@@ -16,7 +16,8 @@ const setSelector = document.getElementById('set-selector');
 
 const balanceDisplay = document.getElementById('balance');
 const modalOverlay = document.getElementById('modal-overlay');
-const zoomedCard = document.getElementById('zoomed-card');
+const zoomedCard   = document.getElementById('zoomed-card');
+const shopScreen   = document.getElementById('shop-screen');
 
 let currentPackPrice = 5.00;
 let currentSetData = null;
@@ -194,14 +195,29 @@ document.addEventListener('click', () => sfx.unlock(), { once: true });
 
 viewAlbumBtn.addEventListener('click', () => {
     packContainer.style.display = 'none';
-    albumScreen.style.display = 'block';
-    renderAlbum(); 
+    shopScreen.style.display    = 'none';
+    albumScreen.style.display   = 'block';
+    renderAlbum();
 });
 
 backToGameBtn.addEventListener('click', () => {
     albumScreen.style.display = 'none';
+    shopScreen.style.display  = 'none';
     packContainer.style.display = 'flex';
 });
+
+// Botón Mercado Negro — inyectado junto a "Ver Álbum"
+const shopBtn = document.createElement('button');
+shopBtn.id = 'view-shop-btn';
+shopBtn.innerText = '🕵️ Mercado Negro';
+shopBtn.style.cssText = 'background-color:#2d1b4e; color:#c084fc; border:1px solid #7c3aed;';
+shopBtn.addEventListener('click', () => {
+    packContainer.style.display = 'none';
+    albumScreen.style.display   = 'none';
+    shopScreen.style.display    = 'block';
+    renderShop();
+});
+viewAlbumBtn.insertAdjacentElement('afterend', shopBtn);
 
 if (viewValuableBtn) {
     viewValuableBtn.addEventListener('click', () => {
@@ -265,6 +281,7 @@ async function initSet() {
         applySetTheme(setDetails || {});
 
         // Limpiar el spinner y mostrar el tapete listo
+        shopScreen.style.display = 'none';
         packContainer.innerHTML = '<p class="placeholder-text">¡Colección lista! Pulsa el botón para abrir un sobre 🎴</p>';
 
         // Actualizar botones multi con el precio correcto
@@ -861,6 +878,7 @@ function doOpenPacks(cantidad) {
 
     const setId = document.getElementById('set-selector').value;
     albumScreen.style.display = 'none';
+    shopScreen.style.display  = 'none';
     packContainer.style.display = 'flex';
 
     if (cantidad === 1) {
@@ -1608,6 +1626,14 @@ function renderPack(pack) {
         if (top) flipCard(top.div, top.card, top.index, top.realPrice);
     };
 
+    // ── Precargar imágenes para evitar flash transparente al voltear ──────
+    pack.forEach(card => {
+        if (card.images?.large) {
+            const img = new Image();
+            img.src = card.images.large;
+        }
+    });
+
     // ── Repartir cartas al mazo ───────────────────────────────────────────
     pack.forEach((card, index) => {
         const cardDiv = document.createElement('div');
@@ -2077,6 +2103,252 @@ function ejecutarVenta(card, precio) {
     }
 }
 
+
+
+// ═══════════════════════════════════════════════════════════════
+//  MERCADO NEGRO
+// ═══════════════════════════════════════════════════════════════
+
+const SHOP_REFRESH_MS  = 30 * 60 * 1000;
+const SHOP_STORAGE_KEY = 'pokesim_shop';
+const SHOP_NUM_CARDS   = 8;
+
+function getShopCardPool() {
+    const pool = [];
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('set_cache_')) {
+            try {
+                const cards = JSON.parse(localStorage.getItem(key));
+                if (Array.isArray(cards)) pool.push(...cards);
+            } catch (_) {}
+        }
+    });
+    return pool;
+}
+
+function pickShopCards(pool, count) {
+    if (pool.length === 0) return [];
+    const byRarity = { ultra: [], holo: [], rare: [], uncommon: [], common: [] };
+    pool.forEach(card => {
+        const r = (card.rarity || '').toLowerCase();
+        if (r.includes('secret') || r.includes('hyper') || r.includes('illustration') || r.includes('ultra') || r.includes('vmax') || (r.includes('rare') && r.includes('ex')))
+            byRarity.ultra.push(card);
+        else if (r.includes('rare holo') || r.includes('rare v'))
+            byRarity.holo.push(card);
+        else if (r.includes('rare'))
+            byRarity.rare.push(card);
+        else if (r.includes('uncommon'))
+            byRarity.uncommon.push(card);
+        else
+            byRarity.common.push(card);
+    });
+    const rand = arr => arr[Math.floor(Math.random() * arr.length)];
+    const selected = [], used = new Set();
+    const pick = (bucket) => {
+        if (!bucket.length) return null;
+        let c, tries = 0;
+        do { c = rand(bucket); tries++; } while (used.has(c?.id) && tries < 20);
+        if (c && !used.has(c.id)) { used.add(c.id); return c; }
+        return null;
+    };
+    for (let i = 0; i < count; i++) {
+        const roll = Math.random() * 100;
+        let card = null;
+        if      (roll < 2  && byRarity.ultra.length)    card = pick(byRarity.ultra);
+        else if (roll < 10 && byRarity.holo.length)     card = pick(byRarity.holo);
+        else if (roll < 30 && byRarity.rare.length)     card = pick(byRarity.rare);
+        else if (roll < 60 && byRarity.uncommon.length) card = pick(byRarity.uncommon);
+        if (!card) card = pick(byRarity.common) || pick(byRarity.rare) || pick(byRarity.uncommon);
+        if (card) selected.push(card);
+    }
+    return selected;
+}
+
+function getShopMultiplier(isOfertaDia = false) {
+    if (isOfertaDia) return 0.55 + Math.random() * 0.2;
+    const roll = Math.random();
+    if (roll < 0.15) return 0.80 + Math.random() * 0.1;
+    if (roll < 0.55) return 0.95 + Math.random() * 0.2;
+    if (roll < 0.85) return 1.15 + Math.random() * 0.2;
+    return 1.35 + Math.random() * 0.25;
+}
+
+function getOrGenerateShop() {
+    const now = Date.now();
+    try {
+        const saved = JSON.parse(localStorage.getItem(SHOP_STORAGE_KEY) || 'null');
+        if (saved && (now - saved.generatedAt) < SHOP_REFRESH_MS) return saved;
+    } catch (_) {}
+
+    const pool = getShopCardPool();
+    if (pool.length < 10) return null;
+
+    const normalCards = pickShopCards(pool, SHOP_NUM_CARDS);
+    const rarPool = pool.filter(c => {
+        const r = (c.rarity || '').toLowerCase();
+        return r.includes('rare') || r.includes('ultra') || r.includes('illustration');
+    });
+    const ofertaCard = pickShopCards(rarPool.length > 0 ? rarPool : pool, 1)[0];
+
+    const toItem = (card, isOferta = false) => ({
+        card: { id: card.id, name: card.name, rarity: card.rarity,
+                images: card.images, cardmarket: card.cardmarket,
+                tcgplayer: card.tcgplayer, set: card.set, number: card.number },
+        basePrice: getBestPrice(card),
+        multi: getShopMultiplier(isOferta),
+        stock: isOferta ? 1 : Math.floor(Math.random() * 2) + 1
+    });
+
+    const shopData = {
+        generatedAt: now,
+        oferta: ofertaCard ? toItem(ofertaCard, true) : null,
+        items: normalCards.map(c => toItem(c, false))
+    };
+
+    localStorage.setItem(SHOP_STORAGE_KEY, JSON.stringify(shopData));
+    return shopData;
+}
+
+function renderShop() {
+    shopScreen.innerHTML = '';
+    const shopData = getOrGenerateShop();
+    const saved    = JSON.parse(localStorage.getItem(SHOP_STORAGE_KEY) || '{}');
+    const remaining = Math.max(0, SHOP_REFRESH_MS - (Date.now() - (saved.generatedAt || Date.now())));
+    const mm = String(Math.floor(remaining / 60000)).padStart(2, '0');
+    const ss = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0');
+
+    const header = document.createElement('div');
+    header.style.cssText = `display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 20px;margin-bottom:20px;background:linear-gradient(135deg,#1a0a2e,#0d1b2a);border-radius:12px;border:1px solid #7c3aed;box-shadow:0 0 20px rgba(124,58,237,0.2);`;
+    header.innerHTML = `
+        <div>
+            <div style="font-size:1.4rem;font-weight:900;color:#c084fc;">🕵️ Mercado Negro</div>
+            <div style="font-size:0.75rem;color:#888;margin-top:2px;">Stock cambia cada 30 min · Cantidades limitadas</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <div style="text-align:center;">
+                <div style="font-size:0.65rem;color:#888;text-transform:uppercase;">Próxima rotación</div>
+                <div id="shop-countdown" style="font-size:1.4rem;font-weight:bold;color:#c084fc;font-family:monospace;">${mm}:${ss}</div>
+            </div>
+            <button id="back-from-shop" style="background:#1a1a1a;color:#aaa;border:1px solid #444;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:0.85rem;">⬅ Volver al Tapete</button>
+        </div>
+    `;
+    shopScreen.appendChild(header);
+    document.getElementById('back-from-shop').onclick = () => {
+        shopScreen.style.display = 'none';
+        packContainer.style.display = 'flex';
+    };
+    startShopCountdown();
+
+    if (!shopData) {
+        shopScreen.innerHTML += `<div style="text-align:center;padding:60px;color:#888;"><div style="font-size:2rem;margin-bottom:12px;">📦</div><div>Abre algunos sobres primero para que el mercado tenga stock.</div><div style="font-size:0.8rem;color:#555;margin-top:8px;">El mercado se nutre de las colecciones que hayas descargado.</div></div>`;
+        return;
+    }
+
+    if (shopData.oferta && shopData.oferta.stock > 0) {
+        const o = shopData.oferta;
+        const fp = o.basePrice * o.multi;
+        const disc = Math.round((1 - o.multi) * 100);
+        const el = document.createElement('div');
+        el.style.cssText = `background:linear-gradient(135deg,#1a0a00,#2a1500);border:2px solid #f59e0b;border-radius:12px;padding:16px;margin-bottom:24px;box-shadow:0 0 25px rgba(245,158,11,0.25);`;
+        el.innerHTML = `
+            <div style="font-size:0.7rem;color:#f59e0b;text-transform:uppercase;font-weight:bold;letter-spacing:2px;margin-bottom:12px;">⚡ Oferta del Día — ${disc}% descuento</div>
+            <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+                <div style="width:90px;height:126px;flex-shrink:0;background-image:url('${o.card.images.small}');background-size:cover;border-radius:8px;box-shadow:0 0 15px rgba(245,158,11,0.5);border:2px solid #f59e0b;"></div>
+                <div style="flex:1;min-width:150px;">
+                    <div style="font-size:1rem;font-weight:bold;color:white;">${o.card.name}</div>
+                    <div style="font-size:0.7rem;color:#888;margin:4px 0 10px;">${o.card.rarity || ''} · ${o.card.set?.name || ''}</div>
+                    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
+                        <span style="text-decoration:line-through;color:#666;font-size:0.85rem;">$${o.basePrice.toFixed(2)}</span>
+                        <span style="font-size:1.5rem;font-weight:bold;color:#f59e0b;">$${fp.toFixed(2)}</span>
+                    </div>
+                    <button class="shop-buy-btn" data-item="oferta" style="padding:10px 24px;background:#f59e0b;color:#000;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:0.9rem;">🛒 Comprar (x${o.stock})</button>
+                </div>
+            </div>
+        `;
+        shopScreen.appendChild(el);
+    }
+
+    const gridTitle = document.createElement('div');
+    gridTitle.style.cssText = 'font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;';
+    gridTitle.innerText = 'Stock disponible';
+    shopScreen.appendChild(gridTitle);
+
+    const grid = document.createElement('div');
+    grid.id = 'shop-grid';
+    grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;padding-bottom:40px;`;
+    shopScreen.appendChild(grid);
+
+    shopData.items.forEach((item, idx) => {
+        if (item.stock <= 0) return;
+        const fp = item.basePrice * item.multi;
+        const cheap = item.multi < 0.95, pricey = item.multi > 1.3;
+        const pc = cheap ? '#4caf50' : pricey ? '#ff7043' : '#fff';
+        const tag = cheap ? '↓ Ganga' : pricey ? '↑ Escaso' : '';
+        const tc = cheap ? '#4caf50' : '#ff7043';
+        const card = document.createElement('div');
+        card.className = 'shop-card-slot';
+        card.style.cssText = `background:#1a1a1a;border:1px solid ${cheap?'#4caf5044':pricey?'#ff704344':'#333'};border-radius:10px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px;transition:transform 0.2s,border-color 0.2s;`;
+        card.innerHTML = `
+            <div style="position:relative;width:100%;">
+                <div style="width:100%;aspect-ratio:2/3;background-image:url('${item.card.images.small}');background-size:cover;background-position:center;border-radius:6px;"></div>
+                ${tag ? `<div style="position:absolute;top:4px;left:4px;background:${tc};color:#fff;font-size:9px;font-weight:bold;padding:2px 6px;border-radius:4px;">${tag}</div>` : ''}
+                <div style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.8);color:#aaa;font-size:9px;padding:2px 6px;border-radius:4px;">x${item.stock}</div>
+            </div>
+            <div style="text-align:center;width:100%;">
+                <div style="font-size:0.72rem;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.card.name}</div>
+                <div style="font-size:0.65rem;color:#666;margin:2px 0;">${item.card.rarity || ''}</div>
+                <div style="font-size:1rem;font-weight:bold;color:${pc};">$${fp.toFixed(2)}</div>
+            </div>
+            <button class="shop-buy-btn" data-item="${idx}" style="width:100%;padding:7px;background:#7c3aed;color:white;border:none;border-radius:6px;font-weight:bold;font-size:0.78rem;cursor:pointer;">🛒 Comprar</button>
+        `;
+        grid.appendChild(card);
+    });
+
+    shopScreen.querySelectorAll('.shop-buy-btn').forEach(btn => {
+        btn.onclick = (e) => { e.stopPropagation(); buyShopItem(btn.dataset.item); };
+    });
+}
+
+function buyShopItem(itemKey) {
+    const shopData = JSON.parse(localStorage.getItem(SHOP_STORAGE_KEY) || 'null');
+    if (!shopData) return;
+    const item = itemKey === 'oferta' ? shopData.oferta : shopData.items[parseInt(itemKey)];
+    if (!item || item.stock <= 0) { showToast('¡Artículo agotado!', 'warning', 3000); return; }
+    const fp  = item.basePrice * item.multi;
+    const inv = getInventoryData();
+    if (inv.wallet < fp) { showToast(`Saldo insuficiente — necesitas $${fp.toFixed(2)}`, 'warning', 3000); return; }
+    if (!confirm(`¿Comprar "${item.card.name}" por $${fp.toFixed(2)}?`)) return;
+    inv.wallet -= fp;
+    saveInventoryData(inv);
+    addCardToInventory(item.card.id, item.basePrice);
+    item.stock -= 1;
+    localStorage.setItem(SHOP_STORAGE_KEY, JSON.stringify(shopData));
+    refreshUI();
+    showToast(`✅ "${item.card.name}" añadida al álbum`, 'success', 3000);
+    renderShop();
+}
+
+let _shopCountdownInterval = null;
+function startShopCountdown() {
+    if (_shopCountdownInterval) clearInterval(_shopCountdownInterval);
+    _shopCountdownInterval = setInterval(() => {
+        const el = document.getElementById('shop-countdown');
+        if (!el) { clearInterval(_shopCountdownInterval); return; }
+        const saved = JSON.parse(localStorage.getItem(SHOP_STORAGE_KEY) || '{}');
+        const rem = Math.max(0, SHOP_REFRESH_MS - (Date.now() - (saved.generatedAt || Date.now())));
+        const mm = String(Math.floor(rem / 60000)).padStart(2, '0');
+        const ss = String(Math.floor((rem % 60000) / 1000)).padStart(2, '0');
+        el.innerText = `${mm}:${ss}`;
+        if (rem <= 0) {
+            clearInterval(_shopCountdownInterval);
+            localStorage.removeItem(SHOP_STORAGE_KEY);
+            if (shopScreen.style.display === 'block') {
+                showToast('🕵️ ¡El mercado ha renovado su stock!', 'info', 4000);
+                renderShop();
+            }
+        }
+    }, 1000);
+}
 
 // Eventos Finales
 modalOverlay.addEventListener('click', (e) => { if(e.target === modalOverlay) modalOverlay.style.display = 'none'; });
